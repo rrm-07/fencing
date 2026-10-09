@@ -4,6 +4,7 @@ A mobile-first web app for scoring fencing bouts and running poules. You can use
 
 - **Bout scorer:** red and green lamps, big scores, and a clock that you tap to start and tap anywhere to stop. It has undo (100 steps), cards, the épée double, priority, DE periods, and a "Bout over" banner with confirm and undo.
 - **Poules:** 3–8 fencers, standard FIE bout order, and the classic V5/D3 sheet with live V, V/M, TS, TR, Ind and Rank. "Next bout" opens the scorer with names filled in and writes the result back to the sheet. Exports to CSV, PNG and print.
+- **Shared poules:** the organiser shares a poule with a 6-character code (e.g. `K7Q-M4X`) or a link. Anyone who joins with it can enter and edit results from their own phone, and the sheet updates live on every phone, including results entered offline once that phone reconnects.
 
 ## Run it locally
 
@@ -57,9 +58,25 @@ The app is plain static files under `app/`, and every path is relative, so it wo
 
 To use any other static host instead, upload the contents of `app/`.
 
+## Shared poules (one-time setup)
+
+Sharing needs a small online database. Piste uses **Firebase Realtime Database**, which is free for club-sized use and needs no server code. Until it is set up, the app works exactly as before and "Share"/"Join" explain that sharing isn't configured.
+
+1. Go to <https://console.firebase.google.com>, click **Create a project** (any name, e.g. `piste`). You can turn Google Analytics off.
+2. In the left menu open **Build → Realtime Database → Create Database**. Pick a location near you (e.g. Belgium `europe-west1`), choose **Start in locked mode**, then **Enable**.
+3. Open the **Rules** tab, replace everything with the contents of [`database.rules.json`](database.rules.json), and click **Publish**.
+4. On the **Data** tab, copy the database URL at the top (it looks like `https://piste-1234-default-rtdb.europe-west1.firebasedatabase.app`).
+5. Paste it into `app/js/config.js` as `SHARE_DB_URL`, bump `VERSION` in `app/sw.js`, and push.
+
+**Who can do what:** anyone with a code can read that poule and enter, edit or clear its results. Nobody can list other poules, and nobody can change a shared poule's name, fencers or bout order once it's shared, so a code can't be used to wipe the poule. Codes use 31 characters × 6 positions (about 900 million combinations), so they can't realistically be guessed. Fencer names and clubs of shared poules are stored in your Firebase database.
+
+**How it works:** the organiser's phone writes the poule once (`poules/{CODE}/meta`), then each bout's result is stored separately (`poules/{CODE}/results/{boutId}`), so two people entering different bouts at the same time never overwrite each other. If two people edit the *same* bout, the last save wins. Phones subscribe to a live stream of results, and anything entered offline is queued ("1 to send") and sent on reconnection. Deleting a shared poule only removes it from that phone.
+
+For local development there is a stand-in server: run `npm run mock-share`, then in the browser console `localStorage.setItem('piste:shareDbUrl', 'http://localhost:9000')` and reload.
+
 ## How data is stored
 
-Everything stays on the device. There is no server and no account.
+Everything stays on the device. There is no account, and nothing leaves the phone except poules you choose to share (see above).
 
 - **IndexedDB** (database `piste`) holds poules, the fencer roster, finished bouts and settings. If IndexedDB is unavailable, for example in some private-browsing modes, the app falls back to `localStorage`.
 - **The bout in progress** is also written synchronously to `localStorage` on every tap. A sudden reload, crash or screen lock never loses the last touch.
@@ -76,12 +93,17 @@ app/                    the deployable site
     timer.js            timestamp-based countdown
     bout.js             bout reducer: scoring, cards, priority, periods, undo
     poule.js            bout-order tables, results, indicators, ranking, CSV
+    share.js            share codes, merging results from other phones
   js/store.js           IndexedDB / localStorage persistence, backup
+  js/sync.js            live sync of shared poules (Firebase REST + EventSource)
+  js/config.js          sharing server URL
   js/state.js           app state and write-through saving
   js/ui/                screens: scorer, poules, settings, exports, dialogs
 tests/                  unit tests (node --test)
 e2e/run.js              Playwright walkthrough in a phone viewport
-scripts/                dev server, icon generator
+e2e/share.js            two-phone sharing test against the mock server
+database.rules.json     Firebase security rules for shared poules
+scripts/                dev server, mock sharing server, icon generator
 ```
 
 ## Rules as implemented

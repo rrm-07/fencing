@@ -1,0 +1,22 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "poules": {
+      "$code": {
+        ".read": "$code.matches(/^[A-HJKMNP-Z2-9]{6}$/)",
+        "meta": {
+          ".write": "!data.exists() && $code.matches(/^[A-HJKMNP-Z2-9]{6}$/)",
+          ".validate": "newData.hasChildren(['id', 'name', 'fencers', 'bouts'])"
+        },
+        "results": {
+          "$bout": {
+            ".write": "root.child('poules').child($code).child('meta').exists() && $bout.length <= 80",
+            ".validate": "newData.hasChildren(['scoreL', 'scoreR', 'winnerId']) && newData.child('scoreL').isNumber() && newData.child('scoreR').isNumber() && newData.child('scoreL').val() >= 0 && newData.child('scoreL').val() <= 99 && newData.child('scoreR').val() >= 0 && newData.child('scoreR').val() <= 99 && newData.child('winnerId').isString() && newData.child('winnerId').val().length <= 80"
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

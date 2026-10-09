@@ -3,7 +3,8 @@
 
 import { state, load, subscribe } from './state.js';
 import { mountBoutView } from './ui/boutView.js';
-import { mountPoulesView } from './ui/pouleView.js';
+import { mountPoulesView, joinFlow } from './ui/pouleView.js';
+import { startSync } from './sync.js';
 import { applyTheme } from './ui/settings.js';
 import { setHapticsEnabled, vibrate } from './ui/device.js';
 import { closeAllModals, clearToast, setHaptic, toast, button } from './ui/dom.js';
@@ -24,7 +25,13 @@ async function boot() {
     const hash = location.hash.replace(/^#/, '');
     let tab = 'bout';
     let sub = { view: 'list' };
-    if (hash.startsWith('poule/')) {
+    let joinCode = null;
+    if (hash.startsWith('join/')) {
+      // A shared link: piste/#join/K7QM4X
+      tab = 'poules';
+      joinCode = decodeURIComponent(hash.slice(5));
+      history.replaceState(null, '', '#poules');
+    } else if (hash.startsWith('poule/')) {
       tab = 'poules';
       sub = { view: 'sheet', id: decodeURIComponent(hash.slice(6)) };
     } else if (hash === 'poules/new') {
@@ -39,6 +46,7 @@ async function boot() {
     tabs.forEach((t) => t.setAttribute('aria-current', String(t.dataset.tab === tab)));
     if (tab === 'poules') poules.show(sub);
     bout.render();
+    if (joinCode) joinFlow(joinCode);
   }
 
   tabs.forEach((t) =>
@@ -64,6 +72,7 @@ async function boot() {
   });
   subscribe((evt) => evt.type === 'settings' && applyTheme());
   route();
+  startSync();
   document.body.classList.add('ready');
   registerSW();
 }

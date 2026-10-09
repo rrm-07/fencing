@@ -1,6 +1,17 @@
 // Poules: history list, create form, and the poule sheet.
 
-import { h, fill, button, holdButton, toast, confirmDialog, actionSheet, modal, promptText } from './dom.js';
+import {
+  h,
+  fill,
+  button,
+  holdButton,
+  toast,
+  clearToast,
+  confirmDialog,
+  actionSheet,
+  modal,
+  promptText,
+} from './dom.js';
 import { haptics } from './device.js';
 import {
   state,
@@ -35,6 +46,8 @@ import {
 import { WEAPON_LABEL } from '../core/bout.js';
 import { openSettings } from './settings.js';
 import { exportCsv, exportImage, printPoule } from './exportPoule.js';
+import { sharingEnabled, sharePoule, joinByCode, syncStatus } from '../sync.js';
+import { formatCode } from '../core/share.js';
 
 const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
 const prettyDate = (d) => {
@@ -60,6 +73,36 @@ export async function startNextBout(poule, pb = nextBout(poule)) {
   }
   if (!same) startPouleBout(poule, pb);
   location.hash = '#bout';
+}
+
+/** Join a shared poule: ask for the code (unless given), then open it. */
+export async function joinFlow(code = null) {
+  if (!sharingEnabled()) {
+    return confirmDialog({
+      title: 'Sharing isn’t set up',
+      message: 'This copy of Piste has no sharing server yet (see the README, “Shared poules”).',
+      confirm: 'OK',
+      cancel: 'Close',
+    });
+  }
+  const input =
+    code ??
+    (await promptText({
+      title: 'Join a shared poule',
+      message: 'Type the 6-character code from the organiser.',
+      placeholder: 'e.g. K7Q-M4X',
+      confirm: 'Join',
+      maxLength: 200,
+      attrs: { autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Share code' },
+    }));
+  if (!input) return;
+  try {
+    const p = await joinByCode(input);
+    toast(`Joined “${p.name}”`);
+    location.replace(`#poule/${encodeURIComponent(p.id)}`);
+  } catch (e) {
+    toast(e.message, { ms: 4000 });
+  }
 }
 
 export function mountPoulesView(root) {
@@ -135,6 +178,7 @@ export function mountPoulesView(root) {
           'header',
           { class: 'topbar' },
           h('h1', {}, 'Poules'),
+          button('Join', () => joinFlow(), 'btn-ghost', { 'aria-label': 'Join a shared poule with a code' }),
           button('＋ New', () => (location.hash = '#poules/new'), 'btn-primary'),
           button('⋯', pouleMenu, 'icon-btn', { 'aria-label': 'Menu' }),
         ),
@@ -158,6 +202,7 @@ export function mountPoulesView(root) {
             'div',
             { class: 'pc-meta' },
             `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${p.fencers.length} fencers`,
+            p.share && h('span', { class: 'pc-share' }, ` · 🔗 ${formatCode(p.share.code)}`),
           ),
           h(
             'div',
@@ -529,6 +574,7 @@ export function mountPoulesView(root) {
             { class: 'meta muted' },
             `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${pr.done}/${pr.total} bouts`,
           ),
+          p.share && shareBar(p),
           nextCard,
           h('h2', { class: 'section' }, 'Sheet', h('small', { class: 'muted' }, ' · tap a cell to enter or edit')),
           sheetTable(p, nb, live),
@@ -798,6 +844,9 @@ export function mountPoulesView(root) {
     const choice = await actionSheet({
       title: p.name,
       actions: [
+        p.share
+          ? { id: 'share', label: `Sharing code: ${formatCode(p.share.code)}`, cls: 'btn-primary' }
+          : { id: 'share', label: 'Share with a code…', cls: 'btn-primary' },
         { id: 'csv', label: 'Export CSV' },
         { id: 'img', label: 'Share as image' },
         { id: 'print', label: 'Print / save as PDF' },
@@ -806,7 +855,8 @@ export function mountPoulesView(root) {
         { id: 'delete', label: 'Delete…', cls: 'btn-danger-ghost' },
       ],
     });
-    if (choice === 'csv') exportCsv(p);
+    if (choice === 'share') shareFlow(p);
+    else if (choice === 'csv') exportCsv(p);
     else if (choice === 'img') exportImage(p);
     else if (choice === 'print') printPoule(p);
     else if (choice) await pouleAction(p, choice);
@@ -826,7 +876,9 @@ export function mountPoulesView(root) {
       const pr = progress(p);
       const ok = await confirmDialog({
         title: `Delete “${p.name}”?`,
-        message: `${pr.done} of ${pr.total} bouts recorded. This can’t be undone (unless you have a backup).`,
+        message: p.share
+          ? `Removes it from this phone only. Everyone else with code ${formatCode(p.share.code)} keeps it.`
+          : `${pr.done} of ${pr.total} bouts recorded. This can’t be undone (unless you have a backup).`,
         confirm: 'Delete',
         danger: true,
       });
@@ -840,7 +892,7 @@ export function mountPoulesView(root) {
 
   subscribe((evt) => {
     if (document.body.dataset.tab !== 'poules') return;
-    if (evt.type === 'poules' || evt.type === 'roster' || evt.type === 'bout') {
+    if (evt.type === 'poules' || evt.type === 'roster' || evt.type === 'bout' || evt.type === 'sync') {
       // Don't rebuild the create form under the user's fingers.
       if (route.view === 'new') return;
       const y = root.querySelector('.page-body')?.scrollTop ?? 0;
@@ -852,6 +904,109 @@ export function mountPoulesView(root) {
       if (ss) ss.scrollLeft = x;
     }
   });
+
+  /* ---------- sharing ---------- */
+
+  function shareBar(p) {
+    const { status, pending } = syncStatus(p);
+    const label = { live: 'Live', connecting: 'Connecting…', offline: 'Offline' }[status];
+    return button(
+      h(
+        'span',
+        { class: 'share-bar-inner' },
+        h('span', { class: `dot ${status}` }),
+        h('b', {}, `🔗 ${formatCode(p.share.code)}`),
+        h('span', { class: 'muted' }, ` · ${label}${pending ? ` · ${pending} to send` : ''}`),
+      ),
+      () => showCode(p),
+      'share-bar',
+      { 'aria-label': `Shared poule, code ${formatCode(p.share.code)}, ${label}` },
+    );
+  }
+
+  async function shareFlow(p) {
+    if (p.share) return showCode(p);
+    if (!sharingEnabled()) return notConfigured();
+    const ok = await confirmDialog({
+      title: 'Share this poule?',
+      message:
+        'You get a code. Anyone with the code can see the sheet and enter or edit results from their own phone, and changes appear live on every phone. The poule is stored on the sharing server.',
+      confirm: 'Create code',
+    });
+    if (!ok) return;
+    try {
+      toast('Creating code…');
+      await sharePoule(p);
+      clearToast();
+      haptics.tap();
+      showCode(state.poules.get(p.id));
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  function shareLink(code) {
+    return new URL(`#join/${code}`, location.href.split('#')[0]).href;
+  }
+
+  function showCode(p) {
+    const code = p.share.code;
+    const link = shareLink(code);
+    return modal(
+      (close) =>
+        h(
+          'div',
+          { class: 'dialog share-dialog' },
+          h('h2', {}, p.share.role === 'owner' ? 'Share this poule' : 'Shared poule'),
+          h('p', { class: 'muted' }, 'Anyone with this code can enter and edit results. In Piste: Poules → Join.'),
+          h('div', { class: 'share-code', 'aria-label': `Code ${code.split('').join(' ')}` }, formatCode(code)),
+          h(
+            'div',
+            { class: 'row gap' },
+            button(
+              'Copy code',
+              async () => {
+                try {
+                  await navigator.clipboard.writeText(formatCode(code));
+                  toast('Code copied');
+                } catch {
+                  toast(formatCode(code));
+                }
+              },
+              'grow',
+            ),
+            button(
+              'Send link',
+              async () => {
+                const text = `Join “${p.name}” in Piste: code ${formatCode(code)}`;
+                try {
+                  if (navigator.share) await navigator.share({ title: p.name, text, url: link });
+                  else {
+                    await navigator.clipboard.writeText(`${text}\n${link}`);
+                    toast('Link copied');
+                  }
+                } catch (e) {
+                  if (e?.name !== 'AbortError') toast(link, { ms: 8000 });
+                }
+              },
+              'btn-primary grow',
+            ),
+          ),
+          button('Done', () => close(), 'btn-ghost btn-block'),
+        ),
+      { kind: 'center' },
+    );
+  }
+
+  function notConfigured() {
+    return confirmDialog({
+      title: 'Sharing isn’t set up',
+      message:
+        'This copy of Piste has no sharing server yet. Whoever deployed it needs to add a Firebase database URL (see the README, “Shared poules”).',
+      confirm: 'OK',
+      cancel: 'Close',
+    });
+  }
 
   return {
     show(r) {

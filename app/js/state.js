@@ -4,6 +4,7 @@
 import * as store from './store.js';
 import { apply, createBout, toRecord, isStarted, uid } from './core/bout.js';
 import { recordResult, createPoule, fencerById } from './core/poule.js';
+import { changedBouts, withPending } from './core/share.js';
 
 export const state = {
   bout: null,
@@ -14,7 +15,7 @@ export const state = {
 
 const subs = new Set();
 export const subscribe = (fn) => (subs.add(fn), () => subs.delete(fn));
-const notify = (evt) => subs.forEach((fn) => fn(evt));
+export const notify = (evt) => subs.forEach((fn) => fn(evt));
 
 export async function load() {
   await store.openStore();
@@ -136,7 +137,13 @@ export function startPouleBout(poule, pb) {
 
 /* ---------- poules ---------- */
 
-export function savePoule(p) {
+/**
+ * Save a poule. For shared poules, changed results are marked as pending;
+ * sync.js sends them to the server. `fromRemote` is used for changes that came
+ * from the server (or that only update sharing bookkeeping).
+ */
+export function savePoule(p, { fromRemote = false } = {}) {
+  if (p.share && !fromRemote) p = withPending(p, changedBouts(state.poules.get(p.id), p));
   state.poules.set(p.id, p);
   store.put('poules', p);
   notify({ type: 'poules', id: p.id });

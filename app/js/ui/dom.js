@@ -130,7 +130,15 @@ export function confirmDialog({ title, message = '', confirm = 'OK', cancel = 'C
   ).then((v) => v === true);
 }
 
-export function promptText({ title, value = '', placeholder = '', confirm = 'Save', maxLength = 40 }) {
+export function promptText({
+  title,
+  value = '',
+  placeholder = '',
+  confirm = 'Save',
+  maxLength = 40,
+  message = '',
+  attrs = {},
+}) {
   return modal(
     (close) => {
       const input = h('input', {
@@ -140,6 +148,7 @@ export function promptText({ title, value = '', placeholder = '', confirm = 'Sav
         maxlength: maxLength,
         autofocus: true,
         enterkeyhint: 'done',
+        ...attrs,
       });
       const submit = () => close(input.value.trim() || null);
       input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
@@ -148,6 +157,7 @@ export function promptText({ title, value = '', placeholder = '', confirm = 'Sav
         'form',
         { class: 'dialog', onSubmit: (e) => (e.preventDefault(), submit()) },
         h('h2', {}, title),
+        message && h('p', { class: 'muted' }, message),
         input,
         h(
           'div',

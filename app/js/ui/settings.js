@@ -4,7 +4,7 @@ import { h, fill, button, modal, toast, download, confirmDialog } from './dom.js
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 export function applyTheme(theme = state.settings.theme) {
   document.documentElement.dataset.theme = theme;
@@ -88,7 +88,7 @@ export function openSettings() {
           h(
             'p',
             { class: 'muted small' },
-            'Everything is stored on this device only. Export a backup now and then, or to move to another phone.',
+            'Everything is stored on this device only (except poules you share with a code). Export a backup now and then, or to move to another phone.',
           ),
           h(
             'div',

@@ -990,6 +990,53 @@ h2.section small {
   display: block;
 }
 
+/* shared poules */
+.share-bar {
+  width: 100%;
+  text-align: left;
+  margin: 0 0 12px;
+  background: var(--surface);
+}
+.share-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.live {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(23, 168, 74, 0.25);
+}
+.dot.connecting {
+  background: var(--yellow);
+}
+.share-code {
+  font-size: 48px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 12px 0 20px;
+  user-select: all;
+  -webkit-user-select: all;
+}
+.share-dialog > .btn-block {
+  margin-top: 8px;
+}
+.pc-share {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* the poule sheet grid */
 .sheet-scroll {
   overflow-x: auto;
