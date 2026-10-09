@@ -43,9 +43,15 @@ Screenshots are saved to `e2e/screens/`.
 
 The app is plain static files under `app/`, and every path is relative, so it works from any sub-path such as `https://you.github.io/fencing/`.
 
-1. Push the repository to GitHub.
-2. In **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Push to `main`. The workflow in `.github/workflows/pages.yml` runs the unit tests and then publishes `app/`.
+**Simplest:**
+1. In **Settings → Pages**, set **Source** to **Deploy from a branch**.
+2. Pick your branch and **/ (root)**, then click **Save**.
+
+`index.html` at the repo root forwards to `app/`, and `.nojekyll` turns off Jekyll processing. The site goes live at `https://<user>.github.io/<repo>/` within a minute or two, and every push to that branch redeploys it.
+
+**Alternative (tests must pass before each deploy):**
+1. Set **Source** to **GitHub Actions**.
+2. Push to `main`. `.github/workflows/pages.yml` runs the unit tests and then publishes `app/` directly.
 
 **When you release changes:** bump `VERSION` in `app/sw.js`. Installed copies then download the new files and show "A new version of Piste is ready · Reload".
 
