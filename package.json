@@ -1,0 +1,16 @@
+{
+  "name": "piste",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Piste — a mobile-first, offline fencing bout scorer and poule manager (PWA).",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "test": "node --test tests/*.test.js",
+    "e2e": "node e2e/run.js",
+    "icons": "node scripts/make-icons.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Piste</title>
+    <meta name="description" content="Score fencing bouts and run poules. Works offline." />
+    <meta name="theme-color" content="#0b0d10" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Piste" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body data-tab="bout">
+    <div id="app">
+      <main id="view-bout" class="view"></main>
+      <main id="view-poules" class="view" hidden></main>
+      <nav class="tabbar" aria-label="Main">
+        <button type="button" data-tab="bout" aria-current="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 20 18 6m-3-2 5 5M6 4l14 14M4 6l5-2"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>Bout</span>
+        </button>
+        <button type="button" data-tab="poules" aria-current="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 4h16v16H4zM4 10h16M4 15h16M10 4v16M15 4v16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+          </svg>
+          <span>Poules</span>
+        </button>
+      </nav>
+    </div>
+    <div id="modal-root"></div>
+    <div id="toast-root" aria-live="polite"></div>
+    <div id="print-root"></div>
+    <noscript>Piste needs JavaScript to run.</noscript>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
