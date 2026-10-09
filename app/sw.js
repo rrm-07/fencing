@@ -1,6 +1,6 @@
 // Service worker: precache the whole app so it works fully offline.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'piste-v1.1.1';
+const VERSION = 'piste-v1.1.2';
 const ASSETS = [
   './',
   './index.html',
@@ -28,7 +28,15 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)));
+  // cache: 'reload' bypasses the browser's HTTP cache, so a new version never
+  // stores stale copies of files. Then take over straight away rather than
+  // waiting for every Piste window to be closed (the page decides when to reload).
+  event.waitUntil(
+    caches
+      .open(VERSION)
+      .then((c) => c.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {

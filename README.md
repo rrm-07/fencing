@@ -54,7 +54,7 @@ The app is plain static files under `app/`, and every path is relative, so it wo
 1. Set **Source** to **GitHub Actions**.
 2. Push to `main`. `.github/workflows/pages.yml` runs the unit tests and then publishes `app/` directly.
 
-**When you release changes:** bump `VERSION` in `app/sw.js`. Installed copies then download the new files and show "A new version of Piste is ready · Reload".
+**When you release changes:** bump `VERSION` in `app/sw.js`. Phones pick up the new version the next time Piste is opened or brought back to the front, and reload into it automatically. If the clock is running, they wait until it stops and offer a "Reload" button.
 
 To use any other static host instead, upload the contents of `app/`.
 

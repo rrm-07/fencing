@@ -79,30 +79,40 @@ async function boot() {
 
 function registerSW() {
   if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
-  // Only reload for an update the user accepted, never on the first install.
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker
     .register('./sw.js')
     .then((reg) => {
-      reg.addEventListener('updatefound', () => {
-        const w = reg.installing;
-        w?.addEventListener('statechange', () => {
-          if (w.state === 'installed' && navigator.serviceWorker.controller) {
-            toast('A new version of Piste is ready', {
-              action: 'Reload',
-              ms: 15000,
-              onAction: () => w.postMessage('skipWaiting'),
-            });
-          }
-        });
+      // Installed apps are often resumed rather than relaunched, so also look
+      // for a new version whenever Piste comes back to the foreground.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
       });
+      // Older versions left the new one waiting: let it take over.
+      if (reg.waiting && hadController) reg.waiting.postMessage('skipWaiting');
     })
     .catch((e) => console.warn('SW registration failed', e));
+
+  // A new version has taken over. Reload into it now, unless that would
+  // interrupt a running clock or an open dialog: then wait for a quiet moment.
   let reloaded = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloaded || !hadController) return;
+  const reloadWhenIdle = () => {
+    if (reloaded) return;
+    const busy = state.bout?.timer.running || document.querySelector('.modal-wrap');
+    if (busy) {
+      toast('Piste has been updated', { action: 'Reload', ms: 10000, onAction: () => location.reload() });
+      setTimeout(reloadWhenIdle, 15000);
+      return;
+    }
     reloaded = true;
     location.reload();
+  };
+  // The first install also "changes" the controller (from none): don't reload
+  // for that, only when one version replaces another.
+  let controlled = hadController;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (controlled) reloadWhenIdle();
+    controlled = true;
   });
 }
 
