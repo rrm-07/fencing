@@ -4,7 +4,7 @@ import { h, fill, button, modal, toast, download, confirmDialog } from './dom.js
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.1.1';
 
 export function applyTheme(theme = state.settings.theme) {
   document.documentElement.dataset.theme = theme;
