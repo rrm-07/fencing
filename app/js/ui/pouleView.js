@@ -4,6 +4,8 @@ import {
   h,
   fill,
   button,
+  iconButton,
+  icon,
   holdButton,
   toast,
   clearToast,
@@ -11,6 +13,11 @@ import {
   actionSheet,
   modal,
   promptText,
+  sheetNav,
+  group,
+  row,
+  tile,
+  segmented,
 } from './dom.js';
 import { haptics } from './device.js';
 import {
@@ -49,13 +56,14 @@ import { exportCsv, exportImage, printPoule } from './exportPoule.js';
 import { sharingEnabled, sharePoule, joinByCode, syncStatus } from '../sync.js';
 import { formatCode } from '../core/share.js';
 
+const WEAPON_TILE = { foil: 'blue', epee: 'purple', sabre: 'orange' };
 const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
-const prettyDate = (d) => {
+const prettyDate = (d, opts = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) => {
   const dt = new Date(`${d}T12:00:00`);
-  return Number.isNaN(dt.getTime())
-    ? d
-    : dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  return Number.isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, opts);
 };
+const shortDate = (d) => prettyDate(d, { day: 'numeric', month: 'short', year: 'numeric' });
+const signed = (n) => (n > 0 ? `+${n}` : String(n));
 
 /** Open the scorer on a poule's next (or a given) bout. */
 export async function startNextBout(poule, pb = nextBout(poule)) {
@@ -79,7 +87,7 @@ export async function startNextBout(poule, pb = nextBout(poule)) {
 export async function joinFlow(code = null) {
   if (!sharingEnabled()) {
     return confirmDialog({
-      title: 'Sharing isn’t set up',
+      title: 'Sharing Isn’t Set Up',
       message: 'This copy of Piste has no sharing server yet (see the README, “Shared poules”).',
       confirm: 'OK',
       cancel: 'Close',
@@ -88,9 +96,9 @@ export async function joinFlow(code = null) {
   const input =
     code ??
     (await promptText({
-      title: 'Join a shared poule',
-      message: 'Type the 6-character code from the organiser.',
-      placeholder: 'e.g. K7Q-M4X',
+      title: 'Join a Poule',
+      message: 'Enter the 6-character code from the organiser.',
+      placeholder: 'K7Q-M4X',
       confirm: 'Join',
       maxLength: 200,
       attrs: { autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Share code' },
@@ -103,6 +111,28 @@ export async function joinFlow(code = null) {
   } catch (e) {
     toast(e.message, { ms: 4000 });
   }
+}
+
+/** Navigation bar. `large` shows a large title in the content that collapses into the bar on scroll. */
+function navbar({ title, left, right = [], large = false }) {
+  return h(
+    'header',
+    { class: `navbar${large ? ' large' : ''}` },
+    h('div', { class: 'nav-l' }, left),
+    h('div', { class: 'nav-title' }, title),
+    h('div', { class: 'nav-r' }, ...right),
+  );
+}
+
+function backButton(label, onClick, aria) {
+  return button([icon('chevronLeft'), label], onClick, 'nav-back', { 'aria-label': aria ?? label });
+}
+
+/** Page shell: nav bar + scrolling body (+ optional footer), with the bar turning translucent on scroll. */
+function page({ nav, body, foot }) {
+  const pb = h('div', { class: 'page-body' }, ...body);
+  pb.addEventListener('scroll', () => nav.classList.toggle('scrolled', pb.scrollTop > 8), { passive: true });
+  return h('section', { class: 'page' }, nav, pb, foot);
 }
 
 export function mountPoulesView(root) {
@@ -125,12 +155,12 @@ export function mountPoulesView(root) {
   /* ---------- list ---------- */
 
   function renderList() {
-    const search = h('input', {
-      class: 'input search',
+    const input = h('input', {
       type: 'search',
-      placeholder: 'Search by name or date',
+      placeholder: 'Search',
       value: query,
       'aria-label': 'Search poules',
+      enterkeyhint: 'search',
     });
     const list = h('div', { class: 'poule-list' });
     const showMatches = () => {
@@ -144,81 +174,78 @@ export function mountPoulesView(root) {
             prettyDate(p.date).toLowerCase().includes(q),
         )
         .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+      const active = items.filter((p) => p.status !== 'finished');
+      const done = items.filter((p) => p.status === 'finished');
+      if (!state.poules.size) {
+        fill(
+          list,
+          h(
+            'div',
+            { class: 'empty' },
+            icon('grid'),
+            h('h2', {}, 'No Poules'),
+            h('p', {}, 'Create a poule to generate the bout order and keep the sheet as you fence.'),
+            button([icon('plus'), 'New Poule'], () => (location.hash = '#poules/new'), 'btn-filled btn-large'),
+            button([icon('link'), 'Join with a Code'], () => joinFlow(), 'btn-tinted btn-large'),
+          ),
+        );
+        return;
+      }
       fill(
         list,
-        ...(items.length
-          ? items.map(pouleCard)
-          : [
-              h(
-                'div',
-                { class: 'empty' },
-                state.poules.size
-                  ? 'No poules match.'
-                  : h(
-                      'div',
-                      {},
-                      h('p', {}, 'No poules yet.'),
-                      h('p', { class: 'muted' }, 'Create one to generate the bout order and keep the sheet.'),
-                    ),
-              ),
-            ]),
+        !items.length && h('div', { class: 'empty' }, h('p', {}, `No results for “${query}”`)),
+        active.length > 0 && group({ header: 'In Progress' }, ...active.map(pouleRow)),
+        done.length > 0 && group({ header: 'Finished' }, ...done.map(pouleRow)),
       );
     };
-    search.addEventListener('input', () => {
-      query = search.value;
+    input.addEventListener('input', () => {
+      query = input.value;
       showMatches();
     });
     showMatches();
     fill(
       root,
-      h(
-        'section',
-        { class: 'page' },
-        h(
-          'header',
-          { class: 'topbar' },
-          h('h1', {}, 'Poules'),
-          button('Join', () => joinFlow(), 'btn-ghost', { 'aria-label': 'Join a shared poule with a code' }),
-          button('＋ New', () => (location.hash = '#poules/new'), 'btn-primary'),
-          button('⋯', pouleMenu, 'icon-btn', { 'aria-label': 'Menu' }),
-        ),
-        h('div', { class: 'page-body' }, search, list),
-      ),
+      page({
+        nav: navbar({
+          title: 'Poules',
+          large: true,
+          right: [
+            button('Join', () => joinFlow(), 'nav-text', { 'aria-label': 'Join a shared poule with a code' }),
+            iconButton('plus', () => (location.hash = '#poules/new'), 'New poule'),
+            iconButton('ellipsis', pouleMenu, 'Menu'),
+          ],
+        }),
+        body: [
+          h('h1', { class: 'large-title' }, 'Poules'),
+          state.poules.size > 0 && h('label', { class: 'searchbar' }, icon('search'), input),
+          list,
+        ],
+      }),
     );
   }
 
-  function pouleCard(p) {
+  function pouleRow(p) {
     const pr = progress(p);
-    const nb = nextBout(p);
+    const finished = p.status === 'finished';
+    const status = finished
+      ? h('span', { class: 'status-done', 'aria-label': 'Finished' }, icon('checkCircle'))
+      : h('span', { class: 'ring', style: { '--p': pr.done / pr.total }, 'aria-hidden': 'true' });
     return h(
       'div',
-      { class: 'poule-card' },
-      button(
-        h(
-          'div',
-          { class: 'pc-main' },
-          h('div', { class: 'pc-name' }, p.name),
-          h(
-            'div',
-            { class: 'pc-meta' },
-            `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${p.fencers.length} fencers`,
-            p.share && h('span', { class: 'pc-share' }, ` · 🔗 ${formatCode(p.share.code)}`),
-          ),
-          h(
-            'div',
-            { class: 'pc-progress' },
-            h('span', { class: 'bar' }, h('span', { style: { width: `${(pr.done / pr.total) * 100}%` } })),
-            h(
-              'span',
-              { class: `pill ${p.status}` },
-              p.status === 'finished' ? 'Finished' : `${pr.done}/${pr.total}${nb ? ' · resume' : ''}`,
-            ),
-          ),
-        ),
-        () => (location.hash = `#poule/${p.id}`),
-        'pc-open',
-      ),
-      button('⋯', () => pouleActions(p), 'icon-btn', { 'aria-label': `Actions for ${p.name}` }),
+      { class: 'poule-row' },
+      row({
+        lead: h('span', { class: `tile tile-${WEAPON_TILE[p.weapon]}` }, WEAPON_LABEL[p.weapon][0]),
+        title: p.name,
+        subtitle: [
+          p.share && icon('link', 'inline-icon'),
+          `${shortDate(p.date)} · ${finished ? `${p.fencers.length} fencers` : `${pr.done} of ${pr.total} bouts`}`,
+        ],
+        trailing: status,
+        chevron: true,
+        onClick: () => (location.hash = `#poule/${p.id}`),
+        cls: 'poule-open',
+      }),
+      iconButton('ellipsis', () => pouleActions(p), `Actions for ${p.name}`),
     );
   }
 
@@ -227,10 +254,10 @@ export function mountPoulesView(root) {
       title: p.name,
       subtitle: `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]}`,
       actions: [
-        { id: 'open', label: p.status === 'finished' ? 'Open sheet' : 'Resume', cls: 'btn-primary' },
-        { id: 'rename', label: 'Rename' },
-        { id: 'dup', label: 'Duplicate (same fencers, new results)' },
-        { id: 'delete', label: 'Delete…', cls: 'btn-danger-ghost' },
+        { id: 'open', label: p.status === 'finished' ? 'Open Sheet' : 'Resume', icon: 'chevronRight' },
+        { id: 'rename', label: 'Rename', icon: 'pencil' },
+        { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
       ],
     });
     if (choice === 'open') location.hash = `#poule/${p.id}`;
@@ -239,10 +266,9 @@ export function mountPoulesView(root) {
 
   async function pouleMenu() {
     const choice = await actionSheet({
-      title: 'Poules',
       actions: [
-        { id: 'roster', label: `Manage roster (${state.roster.length})` },
-        { id: 'settings', label: 'Settings & backup' },
+        { id: 'roster', label: `Roster (${state.roster.length})`, icon: 'people' },
+        { id: 'settings', label: 'Settings', icon: 'gear' },
       ],
     });
     if (choice === 'roster') rosterSheet();
@@ -255,62 +281,40 @@ export function mountPoulesView(root) {
       const draw = () =>
         fill(
           body,
-          h('h2', {}, 'Roster'),
-          h(
-            'p',
-            { class: 'muted small' },
-            'Fencers saved here can be added to new poules with one tap. Removing someone does not change existing poules.',
-          ),
-          h(
-            'div',
-            { class: 'roster-list' },
+          sheetNav({ title: 'Roster', right: { label: 'Done', bold: true, onClick: () => close() } }),
+          group(
+            {
+              footer:
+                'Fencers are saved here when you add them to a poule, so you can reuse them with one tap. Removing someone doesn’t change existing poules.',
+            },
             ...(state.roster.length
               ? state.roster.map((f) =>
-                  h(
-                    'div',
-                    { class: 'roster-row' },
-                    button(
-                      h('span', {}, h('b', {}, f.name), f.club && h('small', { class: 'muted' }, ` ${f.club}`)),
-                      async () => {
-                        const name = await promptText({ title: 'Fencer name', value: f.name });
-                        if (!name) return;
-                        const club = await promptText({
-                          title: `Club for ${name} (optional)`,
-                          value: f.club ?? '',
-                          confirm: 'Save',
-                        });
-                        rosterUpdate({ ...f, name, club: club ?? '' });
-                        draw();
-                      },
-                      'grow left',
-                    ),
-                    button(
-                      'Remove',
-                      async () => {
-                        if (
-                          await confirmDialog({
-                            title: `Remove ${f.name} from the roster?`,
-                            confirm: 'Remove',
-                            danger: true,
-                          })
-                        ) {
+                  row({
+                    title: f.name,
+                    subtitle: f.club || null,
+                    onClick: async () => {
+                      const name = await promptText({ title: 'Fencer Name', value: f.name });
+                      if (!name) return;
+                      const club = await promptText({ title: 'Club', message: 'Optional', value: f.club ?? '' });
+                      rosterUpdate({ ...f, name, club: club ?? '' });
+                      draw();
+                    },
+                    trailing: button(
+                      icon('minusCircle'),
+                      async (e) => {
+                        e.stopPropagation();
+                        if (await confirmDialog({ title: `Remove ${f.name}?`, confirm: 'Remove', danger: true })) {
                           rosterRemove(f.id);
                           draw();
                         }
                       },
-                      'btn-ghost',
+                      'mini del',
+                      { 'aria-label': `Remove ${f.name} from the roster` },
                     ),
-                  ),
+                  }),
                 )
-              : [
-                  h(
-                    'p',
-                    { class: 'muted' },
-                    'No saved fencers yet. They are added automatically when you create a poule.',
-                  ),
-                ]),
+              : [row({ title: h('span', { class: 'row-sub' }, 'No saved fencers yet') })]),
           ),
-          button('Done', () => close(), 'btn-primary btn-block'),
         );
       draw();
       return body;
@@ -325,27 +329,18 @@ export function mountPoulesView(root) {
     const nameIn = h('input', {
       class: 'input',
       value: d.name,
-      placeholder: `Poule ${prettyDate(d.date)}`,
+      placeholder: `Poule ${shortDate(d.date)}`,
       maxlength: 60,
       'aria-label': 'Poule name',
     });
     nameIn.addEventListener('input', () => (d.name = nameIn.value));
     const dateIn = h('input', { class: 'input', type: 'date', value: d.date, 'aria-label': 'Date' });
     dateIn.addEventListener('change', () => (d.date = dateIn.value || today()));
-    const weapon = h(
-      'div',
-      { class: 'segmented' },
-      ...['foil', 'epee', 'sabre'].map((w) =>
-        button(WEAPON_LABEL[w], () => ((d.weapon = w), renderCreate()), d.weapon === w ? 'on' : '', {
-          'aria-pressed': String(d.weapon === w),
-        }),
-      ),
-    );
 
     const full = d.fencers.length >= MAX_FENCERS;
     const fName = h('input', {
       class: 'input',
-      placeholder: 'Name',
+      placeholder: full ? 'Poule is full' : 'Add fencer',
       maxlength: 40,
       enterkeyhint: 'next',
       'aria-label': 'New fencer name',
@@ -353,7 +348,7 @@ export function mountPoulesView(root) {
     });
     const fClub = h('input', {
       class: 'input',
-      placeholder: 'Club (optional)',
+      placeholder: 'Club',
       maxlength: 40,
       enterkeyhint: 'done',
       'aria-label': 'Club',
@@ -376,113 +371,102 @@ export function mountPoulesView(root) {
     fClub.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), add()));
 
     const chosen = new Set(d.fencers.map((f) => f.id));
-    const rosterChips = state.roster.filter((f) => !chosen.has(f.id));
+    const fromRoster = state.roster.filter((f) => !chosen.has(f.id));
     const count = d.fencers.length;
     const valid = count >= MIN_FENCERS && count <= MAX_FENCERS;
+    const bouts = (count * (count - 1)) / 2;
+    const y = root.querySelector('.page-body')?.scrollTop ?? 0;
 
     fill(
       root,
-      h(
-        'section',
-        { class: 'page' },
-        h(
-          'header',
-          { class: 'topbar' },
-          button('‹ Back', () => (location.hash = '#poules'), 'btn-ghost'),
-          h('h1', {}, 'New poule'),
-        ),
-        h(
-          'div',
-          { class: 'page-body' },
-          h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Name'), nameIn),
-          h(
-            'div',
-            { class: 'row gap' },
-            h('label', { class: 'field grow' }, h('span', { class: 'field-label' }, 'Date'), dateIn),
+      page({
+        nav: navbar({
+          title: 'New Poule',
+          left: button('Cancel', () => (location.hash = '#poules'), 'nav-text'),
+        }),
+        body: [
+          group({}, row({ title: nameIn, cls: 'row-inline' }), row({ title: 'Date', trailing: dateIn })),
+          group(
+            { header: 'Weapon' },
+            segmented(
+              ['foil', 'epee', 'sabre'].map((w) => [w, WEAPON_LABEL[w]]),
+              d.weapon,
+              (w) => ((d.weapon = w), renderCreate()),
+              'Weapon',
+            ),
           ),
-          h('div', { class: 'field' }, h('div', { class: 'field-label' }, 'Weapon'), weapon),
-          h(
-            'div',
-            { class: 'field' },
-            h(
-              'div',
-              { class: 'field-label row between' },
-              h('span', {}, `Fencers (${count}/${MAX_FENCERS})`),
-              count > 1 &&
-                button('Shuffle', () => (shuffle(d.fencers), renderCreate()), 'btn-ghost', {
+          group(
+            {
+              header: `Fencers · ${count} of ${MAX_FENCERS}`,
+              headerAction:
+                count > 1 &&
+                button([icon('shuffle'), 'Shuffle'], () => (shuffle(d.fencers), renderCreate()), 'btn-plain', {
                   'aria-label': 'Shuffle the order of fencers',
                 }),
-            ),
-            h(
-              'ol',
-              { class: 'fencer-list' },
-              ...d.fencers.map((f, i) =>
-                h(
-                  'li',
-                  {},
-                  h('span', { class: 'pos' }, i + 1),
-                  h(
-                    'span',
-                    { class: 'grow' },
-                    h('b', {}, f.name),
-                    f.club && h('small', { class: 'muted' }, ` ${f.club}`),
-                  ),
+              footer: 'Positions set the bout order. Shuffle to draw them at random.',
+            },
+            ...d.fencers.map((f, i) =>
+              row({
+                lead: h('span', { class: 'num-badge' }, i + 1),
+                title: f.name,
+                subtitle: f.club || null,
+                trailing: [
                   i > 0 &&
                     button(
-                      '↑',
+                      icon('arrowUp'),
                       () => (d.fencers.splice(i - 1, 0, d.fencers.splice(i, 1)[0]), renderCreate()),
-                      'icon-btn',
+                      'mini',
                       { 'aria-label': `Move ${f.name} up` },
                     ),
-                  button('✕', () => (d.fencers.splice(i, 1), renderCreate()), 'icon-btn', {
+                  button(icon('minusCircle'), () => (d.fencers.splice(i, 1), renderCreate()), 'mini del', {
                     'aria-label': `Remove ${f.name}`,
                   }),
-                ),
-              ),
+                ],
+              }),
             ),
-            h('div', { class: 'add-fencer' }, fName, fClub, button('Add', add, 'btn-primary', { disabled: full })),
+            h('div', { class: 'add-fencer' }, fName, fClub, button('Add', add, 'btn-plain', { disabled: full })),
           ),
-          rosterChips.length > 0 &&
-            h(
-              'div',
-              { class: 'field' },
-              h('div', { class: 'field-label' }, 'From roster (tap to add)'),
-              h(
-                'div',
-                { class: 'chips' },
-                ...rosterChips.map((f) =>
-                  button(
-                    h('span', {}, f.name, f.club && h('small', {}, ` ${f.club}`)),
-                    () => {
-                      if (d.fencers.length >= MAX_FENCERS) return toast(`A poule has at most ${MAX_FENCERS} fencers`);
-                      d.fencers.push(f);
-                      renderCreate();
-                    },
-                    'chip',
-                    { disabled: full },
-                  ),
-                ),
+          fromRoster.length > 0 &&
+            group(
+              { header: 'From Roster' },
+              ...fromRoster.map((f) =>
+                row({
+                  lead: h('span', { class: 'add-lead' }, icon('plusCircle')),
+                  title: f.name,
+                  subtitle: f.club || null,
+                  onClick: () => {
+                    if (d.fencers.length >= MAX_FENCERS) return toast(`A poule has at most ${MAX_FENCERS} fencers`);
+                    d.fencers.push(f);
+                    renderCreate();
+                  },
+                  attrs: { 'aria-label': `Add ${f.name}`, disabled: full },
+                }),
               ),
             ),
-        ),
-        h(
+        ],
+        foot: h(
           'footer',
           { class: 'page-foot' },
           button(
             valid
-              ? `Create poule · ${(count * (count - 1)) / 2} bouts`
-              : `Add ${Math.max(0, MIN_FENCERS - count)} more fencer${MIN_FENCERS - count === 1 ? '' : 's'}`,
+              ? `Create Poule · ${bouts} Bouts`
+              : `Add ${MIN_FENCERS - count} More Fencer${MIN_FENCERS - count === 1 ? '' : 's'}`,
             create,
-            'btn-primary btn-block',
+            'btn-filled btn-block btn-large',
             { disabled: !valid },
           ),
         ),
-      ),
+      }),
     );
+    const pb = root.querySelector('.page-body');
+    if (pb) {
+      pb.scrollTop = y;
+      pb.dispatchEvent(new Event('scroll'));
+    }
 
     function create() {
       const p = makePoule({
-        name: d.name.trim() || `Poule ${prettyDate(d.date)}`,
+        name: d.name.trim() || `Poule ${shortDate(d.date)}`,
         date: d.date,
         weapon: d.weapon,
         fencers: d.fencers,
@@ -511,7 +495,7 @@ export function mountPoulesView(root) {
       nextCard = h(
         'div',
         { class: 'next-card live' },
-        h('div', { class: 'nc-label' }, `Bout ${live.n} of ${pr.total} · in progress`),
+        h('div', { class: 'nc-label' }, `Bout ${live.n} of ${pr.total} · In progress`),
         h(
           'div',
           { class: 'nc-match' },
@@ -519,23 +503,22 @@ export function mountPoulesView(root) {
           h('span', { class: 'nc-score' }, `${cur.left.score}–${cur.right.score}`),
           h('span', { class: 'r' }, cur.right.name),
         ),
-        button('Resume bout ▶', () => (location.hash = '#bout'), 'btn-primary btn-block btn-big'),
+        button([icon('play'), 'Resume Bout'], () => (location.hash = '#bout'), 'btn-filled btn-block btn-large'),
       );
     } else if (nb) {
       nextCard = h(
         'div',
         { class: 'next-card' },
-        h('div', { class: 'nc-label' }, `Next: bout ${nb.n} of ${pr.total}`),
+        h('div', { class: 'nc-label' }, `Up next · Bout ${nb.n} of ${pr.total}`),
         h(
           'div',
           { class: 'nc-match' },
           h('span', { class: 'l' }, name(nb.leftId)),
-          h('span', { class: 'nc-v' }, 'v'),
+          h('span', { class: 'nc-v' }, 'vs'),
           h('span', { class: 'r' }, name(nb.rightId)),
         ),
-        button('Next bout ▶', () => startNextBout(p, nb), 'btn-primary btn-block btn-big'),
-        afterNext &&
-          h('div', { class: 'nc-deck muted' }, `On deck: ${name(afterNext.leftId)} v ${name(afterNext.rightId)}`),
+        button([icon('play'), 'Next Bout'], () => startNextBout(p, nb), 'btn-filled btn-block btn-large'),
+        afterNext && h('div', { class: 'nc-deck' }, `On deck: ${name(afterNext.leftId)} vs ${name(afterNext.rightId)}`),
       );
     } else {
       const top = ranking(p).filter((r) => r.rank === 1);
@@ -543,62 +526,66 @@ export function mountPoulesView(root) {
         'div',
         { class: 'next-card done' },
         h('div', { class: 'nc-label' }, 'Poule complete'),
-        h('div', { class: 'nc-match' }, `🏆 ${top.map((r) => r.fencer.name).join(' & ')}`),
+        h('div', { class: 'nc-winner' }, icon('trophy'), top.map((r) => r.fencer.name).join(' & ')),
         h(
           'div',
-          { class: 'row gap' },
-          button('CSV', () => exportCsv(p), 'grow'),
-          button('Image', () => exportImage(p), 'grow'),
-          button('Print', () => printPoule(p), 'grow'),
+          { class: 'row-buttons', style: { display: 'flex', gap: '8px' } },
+          button([icon('photo'), 'Image'], () => exportImage(p), 'btn-tinted', { style: { flex: 1 } }),
+          button([icon('doc'), 'CSV'], () => exportCsv(p), 'btn-tinted', { style: { flex: 1 } }),
         ),
       );
     }
 
     fill(
       root,
-      h(
-        'section',
-        { class: 'page' },
-        h(
-          'header',
-          { class: 'topbar' },
-          button('‹', () => (location.hash = '#poules'), 'icon-btn', { 'aria-label': 'All poules' }),
-          h('h1', { class: 'truncate' }, p.name),
-          button('⋯', () => sheetMenu(p), 'icon-btn', { 'aria-label': 'Poule actions' }),
-        ),
-        h(
-          'div',
-          { class: 'page-body' },
+      page({
+        nav: navbar({
+          title: p.name,
+          large: true,
+          left: backButton('Poules', () => (location.hash = '#poules'), 'All poules'),
+          right: [iconButton('ellipsis', () => sheetMenu(p), 'Poule actions')],
+        }),
+        body: [
+          h('h1', { class: 'large-title' }, p.name),
           h(
             'div',
-            { class: 'meta muted' },
-            `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${pr.done}/${pr.total} bouts`,
+            { class: 'summary' },
+            h(
+              'div',
+              { class: 'summary-line' },
+              `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${pr.done} of ${pr.total} bouts`,
+            ),
+            h(
+              'div',
+              { class: `progress${p.status === 'finished' ? ' done' : ''}` },
+              h('span', { style: { width: `${(pr.done / pr.total) * 100}%` } }),
+            ),
           ),
-          p.share && shareBar(p),
+          p.share && group({}, shareRow(p)),
           nextCard,
-          h('h2', { class: 'section' }, 'Sheet', h('small', { class: 'muted' }, ' · tap a cell to enter or edit')),
-          sheetTable(p, nb, live),
-          h('h2', { class: 'section' }, 'Standings'),
-          standings(p),
-          h('h2', { class: 'section' }, 'Bout order'),
-          boutList(p, nb, live),
-          h('h2', { class: 'section' }, 'Export'),
-          h(
-            'div',
-            { class: 'row gap' },
-            button('CSV', () => exportCsv(p), 'grow'),
-            button('Image', () => exportImage(p), 'grow'),
-            button('Print', () => printPoule(p), 'grow'),
+          group(
+            {
+              header: 'Sheet',
+              footer: `Tap a cell to enter or edit a result.${p.fencers.length > 4 ? ' Swipe sideways for V, Ind and rank.' : ''}`,
+            },
+            sheetTable(p, nb, live),
           ),
-        ),
-      ),
+          standings(p),
+          boutList(p, nb, live),
+          group(
+            { header: 'Export' },
+            row({ lead: tile('photo', 'indigo'), title: 'Share Image', chevron: true, onClick: () => exportImage(p) }),
+            row({ lead: tile('doc', 'green'), title: 'Export CSV', chevron: true, onClick: () => exportCsv(p) }),
+            row({ lead: tile('printer', 'gray'), title: 'Print', chevron: true, onClick: () => printPoule(p) }),
+          ),
+        ],
+      }),
     );
   }
 
   function sheetTable(p, nb, live) {
     const st = stats(p);
     const ranks = new Map(ranking(p).map((r) => [r.id, rankLabel(r)]));
-    const n = p.fencers.length;
     const hl = live ?? nb;
     return h(
       'div',
@@ -628,7 +615,7 @@ export function mountPoulesView(root) {
               h(
                 'th',
                 { class: 'name-col', scope: 'row' },
-                h('span', { class: 'pos' }, r + 1),
+                h('span', { class: 'num-badge' }, r + 1),
                 h('span', { class: 'nm' }, f.name),
               ),
               ...p.fencers.map((o) => {
@@ -651,83 +638,56 @@ export function mountPoulesView(root) {
               h('td', { class: 'res' }, formatVM(s.VM)),
               h('td', { class: 'res' }, s.TS),
               h('td', { class: 'res' }, s.TR),
-              h('td', { class: 'res' }, s.Ind > 0 ? `+${s.Ind}` : s.Ind),
+              h('td', { class: 'res' }, signed(s.Ind)),
               h('td', { class: 'res rank' }, s.M ? ranks.get(f.id) : '–'),
             );
           }),
         ),
       ),
-      n > 4 && h('div', { class: 'scroll-hint muted small' }, 'Swipe the sheet sideways for results →'),
     );
   }
 
   function standings(p) {
-    const rows = ranking(p);
-    return h(
-      'table',
-      { class: 'standings' },
-      h(
-        'thead',
-        {},
-        h(
-          'tr',
-          {},
-          h('th', {}, 'Rk'),
-          h('th', { class: 'l' }, 'Fencer'),
-          h('th', {}, 'V/M'),
-          h('th', {}, 'Ind'),
-          h('th', {}, 'TS'),
-        ),
-      ),
-      h(
-        'tbody',
-        {},
-        ...rows.map((r) =>
-          h(
-            'tr',
-            {},
-            h('td', { class: 'rank' }, r.M ? rankLabel(r) : '–'),
-            h(
-              'td',
-              { class: 'l' },
-              r.fencer.name,
-              r.fencer.club && h('small', { class: 'muted' }, ` ${r.fencer.club}`),
-            ),
-            h('td', {}, `${r.V}/${r.M}`),
-            h('td', {}, r.Ind > 0 ? `+${r.Ind}` : r.Ind),
-            h('td', {}, r.TS),
-          ),
-        ),
+    return group(
+      { header: 'Standings', cls: 'standings', footer: 'Ranked by V/M, then indicator, then touches scored.' },
+      ...ranking(p).map((r) =>
+        row({
+          lead: h('span', { class: `rank-badge${r.M && r.rank === 1 ? ' gold' : ''}` }, r.M ? rankLabel(r) : '–'),
+          title: r.fencer.name,
+          subtitle: r.fencer.club || null,
+          detail: `${r.V}/${r.M} · ${signed(r.Ind)}`,
+        }),
       ),
     );
   }
 
   function boutList(p, nb, live) {
     const name = (id) => fencerById(p, id)?.name ?? '?';
-    return h(
-      'ol',
-      { class: 'bout-list' },
+    return group(
+      { header: 'Bouts', cls: 'bout-list' },
       ...p.bouts.map((b) => {
         const done = isDone(b);
-        const isLive = live?.id === b.id;
-        const cls = done ? 'done' : isLive ? 'live' : nb?.id === b.id ? 'next' : '';
         const wl = (id) => (done ? (b.winnerId === id ? 'w' : 'l') : '');
-        return h(
-          'li',
-          { class: cls },
-          button(
-            h(
-              'span',
-              { class: 'bl' },
-              h('span', { class: 'bn' }, b.n),
-              h('span', { class: `bf ${wl(b.leftId)}` }, name(b.leftId)),
-              h('span', { class: 'bs' }, done ? `${b.scoreL}–${b.scoreR}` : isLive ? 'live' : 'v'),
-              h('span', { class: `bf r ${wl(b.rightId)}` }, name(b.rightId)),
-            ),
-            () => resultDialog(p, b, b.leftId),
-            'bout-row',
+        const isLive = live?.id === b.id;
+        return row({
+          lead: h('span', { class: 'bout-n' }, b.n),
+          title: h(
+            'span',
+            { class: 'bout-names' },
+            h('span', { class: wl(b.leftId) }, name(b.leftId)),
+            h('span', { class: 'l' }, ' vs '),
+            h('span', { class: wl(b.rightId) }, name(b.rightId)),
           ),
-        );
+          trailing: done
+            ? h('span', { class: 'score-detail' }, `${b.scoreL}–${b.scoreR}`)
+            : isLive
+              ? h('span', { class: 'tag tag-live' }, 'Live')
+              : nb?.id === b.id
+                ? h('span', { class: 'tag tag-next' }, 'Up next')
+                : null,
+          onClick: () => resultDialog(p, b, b.leftId),
+          cls: 'bout-row',
+        });
       }),
     );
   }
@@ -752,21 +712,45 @@ export function mountPoulesView(root) {
           'div',
           { class: 'stepper' },
           h('div', { class: 'st-name' }, label),
+          h('span', { class: 'st-val' }, get()),
           h(
             'div',
             { class: 'st-row' },
-            button('−', () => (set(Math.max(0, get() - 1)), draw()), 'st-btn', { 'aria-label': `${label} minus one` }),
-            h('span', { class: 'st-val' }, get()),
-            button('+', () => (set(Math.min(99, get() + 1)), draw()), 'st-btn', { 'aria-label': `${label} plus one` }),
+            button(icon('minus'), () => (set(Math.max(0, get() - 1)), draw()), 'st-btn', {
+              'aria-label': `${label} minus one`,
+            }),
+            button(icon('plus'), () => (set(Math.min(99, get() + 1)), draw()), 'st-btn', {
+              'aria-label': `${label} plus one`,
+            }),
           ),
-          button(`= ${target}`, () => (set(target), draw()), 'btn-ghost', { 'aria-label': `${label} ${target}` }),
+          button(`Set ${target}`, () => (set(target), draw()), 'st-target', { 'aria-label': `${label} ${target}` }),
         );
+      const save = () => {
+        const v = validateResult({ leftId: aId, rightId: bId }, { scoreL: sa, scoreR: sb, winnerId: winner });
+        if (!v.ok) return toast(v.error);
+        savePoule(
+          recordResult(p, b.id, {
+            leftId: aId,
+            rightId: bId,
+            scoreL: sa,
+            scoreR: sb,
+            winnerId: winner,
+            reason: 'manual',
+          }),
+        );
+        haptics.tap();
+        close();
+      };
       const draw = () => {
         if (!manualWinner) winner = sa === sb ? null : sa > sb ? aId : bId;
         const v = validateResult({ leftId: aId, rightId: bId }, { scoreL: sa, scoreR: sb, winnerId: winner });
         fill(
           body,
-          h('h2', {}, `Bout ${b.n}: ${A.name} v ${B.name}`),
+          sheetNav({
+            title: `Bout ${b.n}`,
+            left: { label: 'Cancel', onClick: () => close() },
+            right: { label: 'Save', bold: true, onClick: save, disabled: !v.ok },
+          }),
           h(
             'div',
             { class: 'steppers' },
@@ -781,57 +765,32 @@ export function mountPoulesView(root) {
               (x) => (sb = x),
             ),
           ),
-          h(
-            'div',
-            { class: 'field' },
-            h('div', { class: 'field-label' }, sa === sb ? 'Level score: who won on priority?' : 'Winner'),
-            h(
-              'div',
-              { class: 'segmented' },
-              ...[
+          group(
+            { header: sa === sb ? 'Level score: who won on priority?' : 'Winner' },
+            segmented(
+              [
                 [aId, A.name],
                 [bId, B.name],
-              ].map(([id, n]) =>
-                button(n, () => ((winner = id), (manualWinner = true), draw()), winner === id ? 'on' : '', {
-                  'aria-pressed': String(winner === id),
-                }),
-              ),
+              ],
+              winner,
+              (id) => ((winner = id), (manualWinner = true), draw()),
+              'Winner',
             ),
           ),
-          h(
-            'div',
-            { class: 'row gap' },
-            button('Cancel', () => close(), 'btn-ghost grow'),
-            button(
-              'Save',
-              () => {
-                if (!v.ok) return toast(v.error);
-                savePoule(
-                  recordResult(p, b.id, {
-                    leftId: aId,
-                    rightId: bId,
-                    scoreL: sa,
-                    scoreR: sb,
-                    winnerId: winner,
-                    reason: 'manual',
-                  }),
-                );
-                haptics.tap();
-                close();
-              },
-              'btn-primary grow',
-              { disabled: !v.ok },
-            ),
-          ),
-          h(
-            'div',
-            { class: 'row gap' },
-            button('Fence this bout ▶', () => (close(), startNextBout(p, b)), 'grow'),
+          group(
+            {},
+            row({
+              lead: icon('play'),
+              title: 'Fence This Bout',
+              tone: 'accent',
+              onClick: () => (close(), startNextBout(p, b)),
+            }),
             done &&
-              holdButton('Clear', () => (savePoule(clearResult(p, b.id)), close(), toast('Result cleared')), {
-                cls: 'btn-danger-ghost',
-                hint: 'Press and hold to clear this result',
-              }),
+              holdButton(
+                [icon('trash'), h('span', { class: 'row-title' }, 'Hold to Clear Result')],
+                () => (savePoule(clearResult(p, b.id)), close(), toast('Result cleared')),
+                { cls: 'row tappable tone-danger', hint: 'Press and hold to clear this result' },
+              ),
           ),
         );
       };
@@ -845,14 +804,14 @@ export function mountPoulesView(root) {
       title: p.name,
       actions: [
         p.share
-          ? { id: 'share', label: `Sharing code: ${formatCode(p.share.code)}`, cls: 'btn-primary' }
-          : { id: 'share', label: 'Share with a code…', cls: 'btn-primary' },
-        { id: 'csv', label: 'Export CSV' },
-        { id: 'img', label: 'Share as image' },
-        { id: 'print', label: 'Print / save as PDF' },
-        { id: 'rename', label: 'Rename' },
-        { id: 'dup', label: 'Duplicate' },
-        { id: 'delete', label: 'Delete…', cls: 'btn-danger-ghost' },
+          ? { id: 'share', label: `Sharing Code ${formatCode(p.share.code)}`, icon: 'link' }
+          : { id: 'share', label: 'Share with a Code…', icon: 'link' },
+        { id: 'img', label: 'Share Image', icon: 'photo' },
+        { id: 'csv', label: 'Export CSV', icon: 'doc' },
+        { id: 'print', label: 'Print', icon: 'printer' },
+        { id: 'rename', label: 'Rename', icon: 'pencil' },
+        { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
       ],
     });
     if (choice === 'share') shareFlow(p);
@@ -865,7 +824,7 @@ export function mountPoulesView(root) {
   /** Rename / duplicate / delete, shared by the list and the sheet menus. */
   async function pouleAction(p, id) {
     if (id === 'rename') {
-      const name = await promptText({ title: 'Rename poule', value: p.name, maxLength: 60 });
+      const name = await promptText({ title: 'Rename Poule', value: p.name, maxLength: 60 });
       if (name) savePoule({ ...p, name, updatedAt: Date.now() });
     } else if (id === 'dup') {
       const d = duplicatePoule(p);
@@ -877,8 +836,8 @@ export function mountPoulesView(root) {
       const ok = await confirmDialog({
         title: `Delete “${p.name}”?`,
         message: p.share
-          ? `Removes it from this phone only. Everyone else with code ${formatCode(p.share.code)} keeps it.`
-          : `${pr.done} of ${pr.total} bouts recorded. This can’t be undone (unless you have a backup).`,
+          ? `This removes it from this phone only. Everyone else with code ${formatCode(p.share.code)} keeps it.`
+          : `${pr.done} of ${pr.total} bouts recorded. This can’t be undone.`,
         confirm: 'Delete',
         danger: true,
       });
@@ -899,7 +858,10 @@ export function mountPoulesView(root) {
       const x = root.querySelector('.sheet-scroll')?.scrollLeft ?? 0;
       render();
       const pb = root.querySelector('.page-body');
-      if (pb) pb.scrollTop = y;
+      if (pb) {
+        pb.scrollTop = y;
+        pb.dispatchEvent(new Event('scroll'));
+      }
       const ss = root.querySelector('.sheet-scroll');
       if (ss) ss.scrollLeft = x;
     }
@@ -907,31 +869,33 @@ export function mountPoulesView(root) {
 
   /* ---------- sharing ---------- */
 
-  function shareBar(p) {
+  function shareRow(p) {
     const { status, pending } = syncStatus(p);
     const label = { live: 'Live', connecting: 'Connecting…', offline: 'Offline' }[status];
-    return button(
-      h(
+    return row({
+      lead: tile('link', 'blue'),
+      title: `Shared · ${formatCode(p.share.code)}`,
+      subtitle: h(
         'span',
-        { class: 'share-bar-inner' },
+        { style: { display: 'inline-flex', alignItems: 'center', gap: '7px' } },
         h('span', { class: `dot ${status}` }),
-        h('b', {}, `🔗 ${formatCode(p.share.code)}`),
-        h('span', { class: 'muted' }, ` · ${label}${pending ? ` · ${pending} to send` : ''}`),
+        `${label}${pending ? ` · ${pending} to send` : ''}`,
       ),
-      () => showCode(p),
-      'share-bar',
-      { 'aria-label': `Shared poule, code ${formatCode(p.share.code)}, ${label}` },
-    );
+      chevron: true,
+      onClick: () => showCode(p),
+      cls: 'share-bar',
+      attrs: { 'aria-label': `Shared poule, code ${formatCode(p.share.code)}, ${label}` },
+    });
   }
 
   async function shareFlow(p) {
     if (p.share) return showCode(p);
     if (!sharingEnabled()) return notConfigured();
     const ok = await confirmDialog({
-      title: 'Share this poule?',
+      title: 'Share This Poule?',
       message:
-        'You get a code. Anyone with the code can see the sheet and enter or edit results from their own phone, and changes appear live on every phone. The poule is stored on the sharing server.',
-      confirm: 'Create code',
+        'You’ll get a code. Anyone with it can see the sheet and enter or edit results from their own phone, live.',
+      confirm: 'Create Code',
     });
     if (!ok) return;
     try {
@@ -952,55 +916,62 @@ export function mountPoulesView(root) {
   function showCode(p) {
     const code = p.share.code;
     const link = shareLink(code);
-    return modal(
-      (close) =>
+    return modal((close) =>
+      h(
+        'div',
+        { class: 'sheet-body share-dialog' },
+        sheetNav({
+          title: p.share.role === 'owner' ? 'Share Poule' : 'Shared Poule',
+          right: { label: 'Done', bold: true, onClick: () => close() },
+        }),
         h(
           'div',
-          { class: 'dialog share-dialog' },
-          h('h2', {}, p.share.role === 'owner' ? 'Share this poule' : 'Shared poule'),
-          h('p', { class: 'muted' }, 'Anyone with this code can enter and edit results. In Piste: Poules → Join.'),
-          h('div', { class: 'share-code', 'aria-label': `Code ${code.split('').join(' ')}` }, formatCode(code)),
-          h(
-            'div',
-            { class: 'row gap' },
-            button(
-              'Copy code',
-              async () => {
-                try {
-                  await navigator.clipboard.writeText(formatCode(code));
-                  toast('Code copied');
-                } catch {
-                  toast(formatCode(code));
-                }
-              },
-              'grow',
-            ),
-            button(
-              'Send link',
-              async () => {
-                const text = `Join “${p.name}” in Piste: code ${formatCode(code)}`;
-                try {
-                  if (navigator.share) await navigator.share({ title: p.name, text, url: link });
-                  else {
-                    await navigator.clipboard.writeText(`${text}\n${link}`);
-                    toast('Link copied');
-                  }
-                } catch (e) {
-                  if (e?.name !== 'AbortError') toast(link, { ms: 8000 });
-                }
-              },
-              'btn-primary grow',
-            ),
-          ),
-          button('Done', () => close(), 'btn-ghost btn-block'),
+          { class: 'share-hero' },
+          tile('link', 'blue'),
+          h('p', {}, 'Anyone with this code can enter and edit results. In Piste: Poules → Join.'),
         ),
-      { kind: 'center' },
+        h('div', { class: 'share-code', 'aria-label': `Code ${code.split('').join(' ')}` }, formatCode(code)),
+        h(
+          'div',
+          { style: { display: 'flex', gap: '10px' } },
+          button(
+            [icon('copy'), 'Copy Code'],
+            async () => {
+              try {
+                await navigator.clipboard.writeText(formatCode(code));
+                toast('Code copied');
+              } catch {
+                toast(formatCode(code));
+              }
+            },
+            'btn-tinted btn-large',
+            { style: { flex: 1 } },
+          ),
+          button(
+            [icon('share'), 'Send Link'],
+            async () => {
+              const text = `Join “${p.name}” in Piste: code ${formatCode(code)}`;
+              try {
+                if (navigator.share) await navigator.share({ title: p.name, text, url: link });
+                else {
+                  await navigator.clipboard.writeText(`${text}\n${link}`);
+                  toast('Link copied');
+                }
+              } catch (e) {
+                if (e?.name !== 'AbortError') toast(link, { ms: 8000 });
+              }
+            },
+            'btn-filled btn-large',
+            { style: { flex: 1 } },
+          ),
+        ),
+      ),
     );
   }
 
   function notConfigured() {
     return confirmDialog({
-      title: 'Sharing isn’t set up',
+      title: 'Sharing Isn’t Set Up',
       message:
         'This copy of Piste has no sharing server yet. Whoever deployed it needs to add a Firebase database URL (see the README, “Shared poules”).',
       confirm: 'OK',

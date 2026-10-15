@@ -1,6 +1,6 @@
 # Piste
 
-A mobile-first web app for scoring fencing bouts and running poules. You can use it one-handed at the side of the piste. It installs as an app and works fully offline.
+A mobile-first web app for scoring fencing bouts and running poules. You can use it one-handed at the side of the piste. It installs as an app and works fully offline. The design follows Apple's iOS conventions: system font with rounded numerals, Apple's system colours in dark and light (or automatic) appearance, grouped lists, sheets and action sheets. Every tap target is still at least 56px.
 
 - **Bout scorer:** red and green lamps, big scores, and a clock that you tap to start and tap anywhere to stop. It has undo (100 steps), cards, the épée double, priority, DE periods, and a "Bout over" banner with confirm and undo.
 - **Poules:** 3–8 fencers, standard FIE bout order, and the classic V5/D3 sheet with live V, V/M, TS, TR, Ind and Rank. "Next bout" opens the scorer with names filled in and writes the result back to the sheet. Exports to CSV, PNG and print.

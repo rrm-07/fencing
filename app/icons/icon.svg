@@ -1,8 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0b0d10"/>
-  <rect x="56" y="150" width="180" height="212" rx="28" fill="#e53935"/>
-  <rect x="276" y="150" width="180" height="212" rx="28" fill="#2e9e44"/>
-  <text x="146" y="312" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="800" fill="#fff" text-anchor="middle">5</text>
-  <text x="366" y="312" font-family="Arial, Helvetica, sans-serif" font-size="150" font-weight="800" fill="#fff" text-anchor="middle">3</text>
-  <rect x="56" y="392" width="400" height="20" rx="10" fill="#f5f5f5" opacity=".85"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1c1e"/><stop offset="1" stop-color="#000"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <rect x="64" y="132" width="178" height="248" rx="44" fill="#ff453a"/>
+  <rect x="270" y="132" width="178" height="248" rx="44" fill="#30d158"/>
+  <text x="153" y="318" font-family="ui-rounded, 'SF Pro Rounded', 'Arial Rounded MT Bold', Arial, sans-serif" font-size="168" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+  <text x="359" y="318" font-family="ui-rounded, 'SF Pro Rounded', 'Arial Rounded MT Bold', Arial, sans-serif" font-size="168" font-weight="700" fill="#fff" text-anchor="middle">3</text>
 </svg>

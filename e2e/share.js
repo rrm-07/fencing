@@ -64,17 +64,17 @@ try {
   await org.page.goto(APP_URL);
   await org.page.waitForSelector('body.ready');
   await org.page.locator('.tabbar [data-tab="poules"]').click();
-  await org.page.getByRole('button', { name: '＋ New' }).click();
+  await org.page.getByRole('button', { name: 'New poule', exact: true }).click();
   await org.page.locator('input[aria-label="Poule name"]').fill('Saturday U14');
   for (const n of ['Ana', 'Ben', 'Cal', 'Dov']) {
     await org.page.locator('input[aria-label="New fencer name"]').fill(n);
     await org.page.getByRole('button', { name: 'Add', exact: true }).click();
   }
-  await org.page.getByRole('button', { name: /Create poule/ }).click();
+  await org.page.getByRole('button', { name: /Create Poule/ }).click();
   await org.page.waitForSelector('table.sheet');
   await org.page.locator('[aria-label="Poule actions"]').click();
-  await dialogButton(org.page, 'Share with a code…');
-  await dialogButton(org.page, 'Create code');
+  await dialogButton(org.page, 'Share with a Code…');
+  await dialogButton(org.page, 'Create Code');
   await org.page.waitForSelector('.share-code');
   const code = (await org.page.locator('.share-code').textContent()).trim();
   assert.match(code, /^[A-HJKMNP-Z2-9]{3}-[A-HJKMNP-Z2-9]{3}$/);
@@ -92,7 +92,7 @@ try {
   await parent.page.locator('input[aria-label="Share code"]').fill(code.toLowerCase().replace('-', ' '));
   await dialogButton(parent.page, 'Join');
   await parent.page.waitForSelector('table.sheet');
-  assert.equal(await parent.page.locator('.page .topbar h1').textContent(), 'Saturday U14');
+  assert.equal(await parent.page.locator('.large-title').textContent(), 'Saturday U14');
   await parent.page.waitForSelector('.share-bar .dot.live', { timeout: 8000 });
   log('parent joined by typing the code (lower case, with a space)');
 
@@ -104,7 +104,7 @@ try {
   // Organiser fences the next bout through the scorer.
   const next = org.page.locator('.next-card .nc-match');
   const [l, r] = [await next.locator('.l').textContent(), await next.locator('.r').textContent()];
-  await org.page.getByRole('button', { name: 'Next bout ▶' }).click();
+  await org.page.getByRole('button', { name: 'Next bout' }).click();
   for (let i = 0; i < 5; i++) await org.page.locator('[aria-label="Add touch Left (red)"]').click();
   await org.page.locator('.banner').getByRole('button', { name: 'Confirm result' }).click();
   await waitCell(parent.page, l, r, 'V5');

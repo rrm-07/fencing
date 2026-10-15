@@ -1,36 +1,41 @@
-// Settings / data menu, reachable from the ⋯ button on both tabs.
+// Settings, reachable from the ⋯ button on both tabs.
 
-import { h, fill, button, modal, toast, download, confirmDialog } from './dom.js';
+import {
+  h,
+  fill,
+  modal,
+  toast,
+  download,
+  confirmDialog,
+  sheetNav,
+  group,
+  row,
+  tile,
+  segmented,
+  toggle,
+} from './dom.js';
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.1.2';
+export const APP_VERSION = '1.2.0';
 
+const systemDark = () => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
+
+/** 'dark' | 'light' | 'system' → applied to <html data-theme>. */
 export function applyTheme(theme = state.settings.theme) {
-  document.documentElement.dataset.theme = theme;
+  const resolved = theme === 'system' ? (systemDark() ? 'dark' : 'light') : theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = resolved;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', theme === 'light' ? '#f4f5f7' : '#0b0d10');
+    ?.setAttribute('content', resolved === 'light' ? '#f2f2f7' : '#000000');
 }
+globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+  if (state.settings.theme === 'system') applyTheme();
+});
 
 export function openSettings() {
   return modal((close) => {
     const body = h('div', { class: 'sheet-body' });
-    const seg = (label, options, current, onPick) =>
-      h(
-        'div',
-        { class: 'field' },
-        h('div', { class: 'field-label' }, label),
-        h(
-          'div',
-          { class: 'segmented' },
-          ...options.map(([v, text]) =>
-            button(text, () => (onPick(v), draw()), v === current ? 'on' : '', {
-              'aria-pressed': String(v === current),
-            }),
-          ),
-        ),
-      );
     const fileInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true });
     fileInput.addEventListener('change', async () => {
       const file = fileInput.files?.[0];
@@ -38,7 +43,7 @@ export function openSettings() {
       try {
         const data = JSON.parse(await file.text());
         const ok = await confirmDialog({
-          title: 'Import backup?',
+          title: 'Import Backup?',
           message: `${data.poules?.length ?? 0} poules, ${data.fencers?.length ?? 0} fencers. Records with the same id are replaced; nothing else is deleted.`,
           confirm: 'Import',
         });
@@ -55,62 +60,68 @@ export function openSettings() {
     const draw = () => {
       fill(
         body,
-        h('h2', {}, 'Settings'),
-        seg(
-          'Theme',
-          [
-            ['dark', 'Dark'],
-            ['light', 'Light'],
-          ],
-          state.settings.theme,
-          (v) => {
-            setSetting('theme', v);
-            applyTheme(v);
-          },
-        ),
-        seg(
-          'Vibration',
-          [
-            [true, 'On'],
-            [false, 'Off'],
-          ],
-          state.settings.haptics,
-          (v) => {
-            setSetting('haptics', v);
-            setHapticsEnabled(v);
-            haptics.tap();
-          },
-        ),
-        h(
-          'div',
-          { class: 'field' },
-          h('div', { class: 'field-label' }, 'Your data'),
-          h(
-            'p',
-            { class: 'muted small' },
-            'Everything is stored on this device only (except poules you share with a code). Export a backup now and then, or to move to another phone.',
+        sheetNav({ title: 'Settings', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        group(
+          { header: 'Appearance' },
+          segmented(
+            [
+              ['system', 'Automatic'],
+              ['dark', 'Dark'],
+              ['light', 'Light'],
+            ],
+            state.settings.theme,
+            (v) => {
+              setSetting('theme', v);
+              applyTheme(v);
+              draw();
+            },
+            'Appearance',
           ),
-          h(
-            'div',
-            { class: 'row gap' },
-            button(
-              'Export backup',
-              async () => {
-                const data = await exportBackup();
-                const stamp = new Date().toISOString().slice(0, 10);
-                download(
-                  `piste-backup-${stamp}.json`,
-                  new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }),
-                );
+        ),
+        group(
+          { footer: 'Buzzes on touches, at 10 seconds and at time. Not available on iPhone.' },
+          row({
+            lead: tile('bolt', 'orange'),
+            title: 'Vibration',
+            trailing: toggle(
+              state.settings.haptics !== false,
+              (v) => {
+                setSetting('haptics', v);
+                setHapticsEnabled(v);
+                haptics.tap();
               },
-              'grow',
+              'Vibration',
             ),
-            button('Import backup', () => fileInput.click(), 'grow'),
-          ),
+          }),
+        ),
+        group(
+          {
+            header: 'Your Data',
+            footer:
+              'Everything is stored on this device, except poules you share with a code. Export a backup now and then, or to move to another phone.',
+          },
+          row({
+            lead: tile('share', 'blue'),
+            title: 'Export Backup',
+            chevron: true,
+            onClick: async () => {
+              const data = await exportBackup();
+              const stamp = new Date().toISOString().slice(0, 10);
+              download(
+                `piste-backup-${stamp}.json`,
+                new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }),
+              );
+            },
+          }),
+          row({
+            lead: tile('download', 'green'),
+            title: 'Import Backup',
+            chevron: true,
+            onClick: () => fileInput.click(),
+          }),
         ),
         fileInput,
-        h('p', { class: 'muted small center' }, `Piste ${APP_VERSION} · works offline`),
-        button('Done', () => close(), 'btn-primary btn-block'),
+        h('p', { class: 'group-footer', style: { textAlign: 'center' } }, `Piste ${APP_VERSION} · Works offline`),
       );
     };
     draw();

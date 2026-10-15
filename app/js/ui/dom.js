@@ -1,5 +1,10 @@
-// Small DOM helpers: element builder, dialogs, bottom sheets, numeric keypad,
-// press-and-hold buttons and toasts. No framework, no hover-dependent UI.
+// UI kit: element builder plus iOS-style components (grouped lists, switches,
+// segmented controls, alerts, action sheets, sheets, keypad, HUD toasts and
+// press-and-hold buttons). No framework, no hover-dependent UI.
+
+import { icon } from './icons.js';
+
+export { icon };
 
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -7,8 +12,12 @@ export function h(tag, attrs = {}, ...children) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
     else if (k === 'text') el.textContent = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
-    else if (k === 'dataset') Object.assign(el.dataset, v);
+    else if (k === 'style' && typeof v === 'object') {
+      for (const [prop, val] of Object.entries(v)) {
+        if (prop.startsWith('--')) el.style.setProperty(prop, val);
+        else el.style[prop] = val;
+      }
+    } else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (v === true) el.setAttribute(k, '');
     else el.setAttribute(k, v);
@@ -37,7 +46,99 @@ export function button(label, onClick, cls = '', attrs = {}) {
   return h('button', { type: 'button', class: `btn ${cls}`.trim(), onClick, ...attrs }, label);
 }
 
-/* ---------- toasts ---------- */
+/** Round icon button (toolbar style). */
+export function iconButton(name, onClick, label, cls = '', attrs = {}) {
+  return button(icon(name), onClick, `icon-btn ${cls}`, { 'aria-label': label, ...attrs });
+}
+
+/* ---------- grouped lists ---------- */
+
+/** An inset grouped section, like iOS Settings. */
+export function group({ header, footer, cls = '', headerAction } = {}, ...rows) {
+  return h(
+    'section',
+    { class: `group-wrap ${cls}`.trim() },
+    (header || headerAction) && h('div', { class: 'group-header' }, h('span', {}, header), headerAction),
+    h('div', { class: 'group' }, ...rows),
+    footer && h('div', { class: 'group-footer' }, footer),
+  );
+}
+
+/**
+ * A list row. With onClick it is a button; `chevron` adds a disclosure arrow.
+ *   lead      node shown on the left (icon tile, number, …)
+ *   title     main label;  subtitle  smaller line under it
+ *   detail    secondary text on the right;  trailing  node on the right
+ *   tone      'accent' | 'danger' for action rows
+ */
+export function row({ lead, title, subtitle, detail, trailing, chevron, onClick, tone, cls = '', attrs = {} }) {
+  const body = [
+    lead && h('span', { class: 'row-lead' }, lead),
+    h(
+      'span',
+      { class: 'row-text' },
+      h('span', { class: 'row-title' }, title),
+      subtitle && h('span', { class: 'row-sub' }, subtitle),
+    ),
+    detail != null && detail !== '' && h('span', { class: 'row-detail' }, detail),
+    trailing,
+    chevron && icon('chevronRight', 'row-chev'),
+  ];
+  const c = `row ${tone ? `tone-${tone}` : ''} ${cls}`.trim();
+  return onClick
+    ? h('button', { type: 'button', class: `${c} tappable`, onClick, ...attrs }, ...body)
+    : h('div', { class: c, ...attrs }, ...body);
+}
+
+/** Coloured rounded-square icon tile used as a row lead. */
+export const tile = (name, color) => h('span', { class: `tile tile-${color}` }, icon(name));
+
+/** iOS switch. */
+export function toggle(checked, onChange, label) {
+  const el = h(
+    'button',
+    { type: 'button', class: 'switch', role: 'switch', 'aria-checked': String(checked), 'aria-label': label },
+    h('span', { class: 'switch-thumb' }),
+  );
+  el.addEventListener('click', () => {
+    const next = el.getAttribute('aria-checked') !== 'true';
+    el.setAttribute('aria-checked', String(next));
+    onChange(next);
+  });
+  return el;
+}
+
+/** iOS segmented control. options: [[value, label], …]. */
+export function segmented(options, current, onPick, label = '') {
+  const idx = Math.max(
+    0,
+    options.findIndex(([v]) => v === current),
+  );
+  return h(
+    'div',
+    {
+      class: 'segmented',
+      role: 'group',
+      'aria-label': label || null,
+      style: { '--n': options.length, '--i': idx },
+    },
+    h('span', { class: `seg-thumb${options.some(([v]) => v === current) ? '' : ' none'}` }),
+    ...options.map(([v, text]) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: v === current ? 'on' : '',
+          'aria-pressed': String(v === current),
+          onClick: () => onPick(v),
+        },
+        text,
+      ),
+    ),
+  );
+}
+
+/* ---------- toasts (top HUD pill) ---------- */
 
 let toastTimer;
 export function clearToast() {
@@ -64,7 +165,10 @@ export function toast(message, { action, onAction, ms = action ? 4000 : 2200 } =
   );
   root.append(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), ms);
+  toastTimer = setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 200);
+  }, ms);
 }
 
 /* ---------- modal layer ---------- */
@@ -73,8 +177,9 @@ const stack = [];
 
 /**
  * Open a modal. `build(close)` returns the content node. Returns a promise
- * resolved with whatever is passed to close(). Tapping the backdrop or the
- * Back gesture (Escape) closes with `undefined`.
+ * resolved with whatever is passed to close(). Tapping the backdrop or
+ * Escape closes with `undefined`.
+ * kind: 'sheet' (bottom sheet) | 'alert' (centred) | 'action' (iOS action sheet)
  */
 export function modal(build, { kind = 'sheet', dismissable = true, cls = '' } = {}) {
   return new Promise((resolve) => {
@@ -84,9 +189,10 @@ export function modal(build, { kind = 'sheet', dismissable = true, cls = '' } = 
       if (done) return;
       done = true;
       wrap.classList.add('closing');
+      wrap.classList.remove('open');
       document.removeEventListener('keydown', onKey);
       stack.splice(stack.indexOf(close), 1);
-      setTimeout(() => wrap.remove(), 120);
+      setTimeout(() => wrap.remove(), 220);
       resolve(value);
     };
     const onKey = (e) => {
@@ -97,36 +203,60 @@ export function modal(build, { kind = 'sheet', dismissable = true, cls = '' } = 
     wrap.addEventListener('click', (e) => {
       if (e.target === wrap && dismissable) close(undefined);
     });
+    if (kind === 'sheet') panel.append(h('div', { class: 'grabber', 'aria-hidden': 'true' }));
     panel.append(build(close));
     root.append(wrap);
     stack.push(close);
     document.addEventListener('keydown', onKey);
-    requestAnimationFrame(() => {
-      wrap.classList.add('open');
-      panel.querySelector('[autofocus]')?.focus();
-    });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        wrap.classList.add('open');
+        panel.querySelector('[autofocus]')?.focus();
+      }),
+    );
   });
 }
 
 export const closeAllModals = () => [...stack].reverse().forEach((c) => c(undefined));
 export const modalOpen = () => stack.length > 0;
 
+/** Sheet navigation bar: [left]  Title  [right]. */
+export function sheetNav({ title, left, right }) {
+  const side = (b, cls) =>
+    b
+      ? button(b.label, b.onClick, `nav-text ${b.bold ? 'bold' : ''} ${cls}`, {
+          disabled: b.disabled ?? false,
+          ...(b.attrs ?? {}),
+        })
+      : h('span', { class: `nav-spacer ${cls}` });
+  return h(
+    'header',
+    { class: 'sheet-nav' },
+    side(left, 'l'),
+    h('h2', { class: 'sheet-title' }, title),
+    side(right, 'r'),
+  );
+}
+
+/* ---------- alerts ---------- */
+
+function alertButtons(buttons) {
+  return h('div', { class: `alert-actions${buttons.length > 2 ? ' stacked' : ''}` }, ...buttons);
+}
+
 export function confirmDialog({ title, message = '', confirm = 'OK', cancel = 'Cancel', danger = false }) {
   return modal(
     (close) =>
       h(
         'div',
-        { class: 'dialog' },
-        h('h2', {}, title),
-        message && h('p', { class: 'muted' }, message),
-        h(
-          'div',
-          { class: 'row gap' },
-          button(cancel, () => close(false), 'btn-ghost grow'),
-          button(confirm, () => close(true), `${danger ? 'btn-danger' : 'btn-primary'} grow`),
-        ),
+        { class: 'alert' },
+        h('div', { class: 'alert-body' }, h('h2', {}, title), message && h('p', {}, message)),
+        alertButtons([
+          button(cancel, () => close(false), 'alert-btn'),
+          button(confirm, () => close(true), `alert-btn bold ${danger ? 'danger' : ''}`),
+        ]),
       ),
-    { kind: 'center' },
+    { kind: 'alert' },
   ).then((v) => v === true);
 }
 
@@ -142,7 +272,7 @@ export function promptText({
   return modal(
     (close) => {
       const input = h('input', {
-        class: 'input',
+        class: 'alert-input',
         value,
         placeholder,
         maxlength: maxLength,
@@ -151,28 +281,23 @@ export function promptText({
         ...attrs,
       });
       const submit = () => close(input.value.trim() || null);
-      input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
-      setTimeout(() => input.select(), 50);
+      setTimeout(() => input.select(), 60);
       return h(
         'form',
-        { class: 'dialog', onSubmit: (e) => (e.preventDefault(), submit()) },
-        h('h2', {}, title),
-        message && h('p', { class: 'muted' }, message),
-        input,
-        h(
-          'div',
-          { class: 'row gap' },
-          button('Cancel', () => close(null), 'btn-ghost grow'),
-          h('button', { type: 'submit', class: 'btn btn-primary grow' }, confirm),
-        ),
+        { class: 'alert', onSubmit: (e) => (e.preventDefault(), submit()) },
+        h('div', { class: 'alert-body' }, h('h2', {}, title), message && h('p', {}, message), input),
+        alertButtons([
+          button('Cancel', () => close(null), 'alert-btn'),
+          h('button', { type: 'submit', class: 'btn alert-btn bold' }, confirm),
+        ]),
       );
     },
-    { kind: 'center' },
+    { kind: 'alert' },
   ).then((v) => v ?? null);
 }
 
 /**
- * Big on-screen keypad (no OS keyboard). mode 'time' shows mm:ss and fills
+ * Phone-style keypad (no OS keyboard). mode 'time' shows m:ss and fills
  * digits from the right like a microwave; mode 'number' is a plain integer.
  * Resolves with the typed digit string, or null.
  */
@@ -182,68 +307,75 @@ export function keypad({ title, mode = 'number', initial = '', maxDigits = mode 
       let digits = '';
       const display = h('div', { class: 'keypad-display', 'aria-live': 'polite' });
       const render = () => {
-        if (mode === 'time') {
-          const d = (digits || '').padStart(3, '0');
-          const mm = d.slice(0, -2).replace(/^0(?=\d)/, '');
-          display.textContent = `${mm}:${d.slice(-2)}`;
-          display.classList.toggle('placeholder', !digits);
-          if (!digits) display.textContent = initial || '0:00';
-        } else {
-          display.textContent = digits || initial || '0';
-          display.classList.toggle('placeholder', !digits);
-        }
+        if (!digits) display.textContent = initial || (mode === 'time' ? '0:00' : '0');
+        else if (mode === 'time') {
+          const d = digits.padStart(3, '0');
+          display.textContent = `${d.slice(0, -2).replace(/^0(?=\d)/, '')}:${d.slice(-2)}`;
+        } else display.textContent = digits;
+        display.classList.toggle('placeholder', !digits);
+        set.disabled = !digits;
       };
       const press = (k) => {
         if (k === 'del') digits = digits.slice(0, -1);
         else if (digits.length < maxDigits) digits = (digits + k).replace(/^0+(?=\d)/, '');
         render();
       };
-      const key = (k, label = k, cls = '') =>
-        button(label, () => press(k), `key ${cls}`, { 'aria-label': k === 'del' ? 'Delete' : label });
+      const key = (k) => button(k, () => press(k), 'key', { 'aria-label': k });
+      const set = button('Set', () => close(digits || null), 'btn-filled btn-block');
       render();
       return h(
         'div',
-        { class: 'dialog keypad' },
-        h('h2', {}, title),
-        hint && h('p', { class: 'muted small' }, hint),
+        { class: 'keypad' },
+        sheetNav({ title, left: { label: 'Cancel', onClick: () => close(null) } }),
+        hint && h('p', { class: 'keypad-hint' }, hint),
         display,
         h(
           'div',
           { class: 'keys' },
-          ...['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((k) => key(k)),
-          button('Cancel', () => close(null), 'key key-muted'),
+          ...['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(key),
+          h('span'),
           key('0'),
-          key('del', '⌫', 'key-muted'),
+          button(icon('deleteLeft'), () => press('del'), 'key key-del', { 'aria-label': 'Delete' }),
         ),
-        button('Set', () => close(digits || null), 'btn-primary btn-block'),
+        set,
       );
     },
-    { kind: 'center' },
+    { kind: 'sheet', cls: 'keypad-sheet' },
   ).then((v) => v ?? null);
 }
 
-/** Bottom sheet with a title and a list of action buttons. Resolves with the chosen id. */
+/**
+ * iOS action sheet. actions: { id, label, icon?, tone?: 'danger', hold?, hint? }
+ * Resolves with the chosen id, or null.
+ */
 export function actionSheet({ title, subtitle, actions }) {
-  return modal((close) =>
-    h(
-      'div',
-      { class: 'sheet-body' },
-      title && h('h2', {}, title),
-      subtitle && h('p', { class: 'muted' }, subtitle),
+  return modal(
+    (close) =>
       h(
         'div',
-        { class: 'stack' },
-        ...actions
-          .filter(Boolean)
-          .map((a) =>
-            a.hold
-              ? holdButton(a.label, () => close(a.id), { cls: a.cls ?? '', hint: a.hint })
-              : button(a.label, () => close(a.id), a.cls ?? ''),
-          ),
+        { class: 'action-sheet' },
+        h(
+          'div',
+          { class: 'action-group' },
+          (title || subtitle) &&
+            h(
+              'div',
+              { class: 'action-head' },
+              title && h('div', { class: 'action-title' }, title),
+              subtitle && h('div', { class: 'action-sub' }, subtitle),
+            ),
+          ...actions.filter(Boolean).map((a) => {
+            const label = h('span', { class: 'action-label' }, a.icon && icon(a.icon), a.label);
+            const cls = `action-btn ${a.tone ? `tone-${a.tone}` : ''} ${a.cls ?? ''}`;
+            return a.hold
+              ? holdButton(label, () => close(a.id), { cls, hint: a.hint })
+              : button(label, () => close(a.id), cls);
+          }),
+        ),
+        button('Cancel', () => close(null), 'action-btn action-cancel'),
       ),
-      button('Cancel', () => close(null), 'btn-ghost btn-block'),
-    ),
-  );
+    { kind: 'action' },
+  ).then((v) => v ?? null);
 }
 
 /**
@@ -302,11 +434,4 @@ export function download(filename, blob) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-export function escapeHtml(s) {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
 }

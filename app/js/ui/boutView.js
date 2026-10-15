@@ -4,6 +4,8 @@ import {
   h,
   fill,
   button,
+  iconButton,
+  icon,
   holdButton,
   toast,
   keypad,
@@ -12,10 +14,15 @@ import {
   modal,
   actionSheet,
   modalOpen,
+  sheetNav,
+  group,
+  row,
+  segmented,
+  toggle,
 } from './dom.js';
 import { haptics, setWakeLock } from './device.js';
 import { state, dispatch, subscribe, confirmBout, newBout, boutInProgress } from '../state.js';
-import { WEAPON_LABEL, BOUT_MS, other, resultText, REASON_TEXT, doubleBlocked } from '../core/bout.js';
+import { WEAPON_LABEL, BOUT_MS, other, REASON_TEXT, doubleBlocked } from '../core/bout.js';
 import * as T from '../core/timer.js';
 import { progress, nextBout } from '../core/poule.js';
 import { openSettings } from './settings.js';
@@ -33,7 +40,7 @@ export function mountBoutView(root) {
   const side = (s) => {
     const name = button('', () => editName(s), 'name', { 'aria-label': `Edit ${SIDE_LABEL[s]} name` });
     const cards = h('span', { class: 'card-chips', 'aria-hidden': 'true' });
-    const prio = h('span', { class: 'prio-badge', hidden: true }, 'P');
+    const prio = h('span', { class: 'prio-badge', hidden: true }, 'PRIORITY');
     const num = h('span', { class: 'num' }, '0');
     const score = h(
       'button',
@@ -54,24 +61,23 @@ export function mountBoutView(root) {
       'minus',
       { 'aria-label': `Remove touch ${SIDE_LABEL[s]}` },
     );
-    const card = button(h('span', { class: 'card-icon' }), () => cardSheet(s), 'card-btn', {
+    const card = button([h('span', { class: 'card-icon' }), 'Card'], () => cardSheet(s), 'card-btn', {
       'aria-label': `Card ${SIDE_LABEL[s]}`,
     });
-    card.append(' Card');
     el[s] = { name, score, num, cards, prio, minus, card, lastScore: null };
     return h('div', { class: `side ${s}` }, name, score, h('div', { class: 'side-ctl' }, minus, card));
   };
 
-  el.format = button('', openFormat, 'chip format', { 'aria-label': 'Bout format' });
-  el.undo = button(['↶', h('span', { class: 'lbl' }, ' Undo')], doUndo, 'undo', { 'aria-label': 'Undo last action' });
-  el.swap = button('⇄', doSwap, 'icon-btn', { 'aria-label': 'Swap sides' });
-  const menu = button('⋯', openSettings, 'icon-btn', { 'aria-label': 'Menu' });
+  el.format = button('', openFormat, 'format', { 'aria-label': 'Bout format' });
+  el.undo = iconButton('undo', doUndo, 'Undo last action', 'undo');
+  el.swap = iconButton('swap', doSwap, 'Swap sides');
+  const menu = iconButton('ellipsis', openSettings, 'Menu');
 
   el.time = h('span', { class: 'time' }, '3:00');
   el.clockStatus = h('span', { class: 'clock-status' });
   el.clock = h(
     'button',
-    { type: 'button', class: 'clock', 'aria-label': 'Start or stop the clock' },
+    { type: 'button', class: 'btn clock', 'aria-label': 'Start or stop the clock' },
     el.time,
     el.clockStatus,
   );
@@ -79,17 +85,21 @@ export function mountBoutView(root) {
     if (suppressed()) return;
     toggleClock();
   });
-  el.p3 = button('3:00', () => preset(BOUT_MS), 'preset');
-  el.p1 = button('1:00', () => preset(T.MIN), 'preset');
-  el.set = button('Set', setTime, 'preset', { 'aria-label': 'Set exact time' });
-  el.reset = holdButton('Reset', doReset, {
+  el.start = button(icon('play'), () => !suppressed() && toggleClock(), 'round startstop', {
+    'aria-label': 'Start clock',
+  });
+  el.reset = holdButton([icon('reset'), 'Reset'], doReset, {
     onTap: confirmReset,
-    cls: 'preset reset',
+    cls: 'round reset',
     attrs: { 'aria-label': 'Reset clock (press and hold)' },
   });
+  el.p3 = button('3:00', () => preset(BOUT_MS), 'preset');
+  el.p1 = button('1:00', () => preset(T.MIN), 'preset');
+  el.set = button('Set', setTime, 'preset set', { 'aria-label': 'Set exact time' });
   el.double = button('Double', doDouble, 'double');
   el.period = button('', choosePeriod, 'period');
-  el.clockCtl = h('div', { class: 'clock-ctl' }, el.p3, el.p1, el.set, el.reset);
+  el.clockRow = h('div', { class: 'clock-row' }, el.reset, el.clock, el.start);
+  el.clockCtl = h('div', { class: 'clock-ctl' }, el.p3, el.p1, el.set);
   el.extra = h('div', { class: 'extra' }, el.double, el.period);
 
   el.banner = h('div', { class: 'banner', hidden: true, role: 'alertdialog', 'aria-live': 'assertive' });
@@ -106,7 +116,7 @@ export function mountBoutView(root) {
   el.overlay.addEventListener('click', (e) => e.stopPropagation());
   el.flash = h('div', { class: 'time-flash', hidden: true });
 
-  el.center = h('div', { class: 'center' }, el.clock, el.clockCtl, el.extra);
+  el.center = h('div', { class: 'center' }, el.clockRow, el.clockCtl, el.extra);
   el.root = h(
     'section',
     { class: 'bout' },
@@ -222,15 +232,17 @@ export function mountBoutView(root) {
     const opp = b[other(s)];
     const carded = f.cards.yellow > 0 || f.cards.red > 0;
     const choice = await actionSheet({
-      title: `Card: ${f.name}`,
-      subtitle: `${SIDE_LABEL[s]} · ${cardSummary(f.cards) || 'no cards yet'}`,
+      title: `Card for ${f.name}`,
+      subtitle: `${cardSummary(f.cards) ? `Has ${cardSummary(f.cards)}. ` : ''}A red card gives ${opp.name} a touch.`,
       actions: [
-        { id: 'yellow', label: carded ? `Yellow → Red (touch to ${opp.name})` : 'Yellow card', cls: 'btn-yellow' },
-        { id: 'red', label: `Red card (touch to ${opp.name})`, cls: 'btn-red' },
+        { id: 'yellow', label: carded ? 'Yellow → Red Card' : 'Yellow Card', icon: 'card', cls: 'card-y' },
+        { id: 'red', label: 'Red Card', icon: 'card', cls: 'card-r' },
         {
           id: 'black',
-          label: 'Black card: hold to end bout',
-          cls: 'btn-black',
+          label: 'Hold for Black Card',
+          icon: 'card',
+          cls: 'card-b',
+          tone: 'danger',
           hold: true,
           hint: 'Press and hold to give a black card',
         },
@@ -247,11 +259,7 @@ export function mountBoutView(root) {
     const b = state.bout;
     const choice = await actionSheet({
       title: 'Period',
-      actions: [1, 2, 3].map((p) => ({
-        id: p,
-        label: `Period ${p}${p === b.period ? ' (current)' : ''}`,
-        cls: p === b.period ? 'btn-primary' : '',
-      })),
+      actions: [1, 2, 3].map((p) => ({ id: p, label: `Period ${p}${p === b.period ? '  ✓' : ''}` })),
     });
     if (choice) dispatch({ type: 'setPeriod', period: choice });
   }
@@ -262,88 +270,91 @@ export function mountBoutView(root) {
 
   function formatSheet(close) {
     const body = h('div', { class: 'sheet-body' });
-    const seg = (label, options, current, onPick) =>
-      h(
-        'div',
-        { class: 'field' },
-        h('div', { class: 'field-label' }, label),
-        h(
-          'div',
-          { class: 'segmented' },
-          ...options.map(([v, text]) =>
-            button(text, () => onPick(v), v === current ? 'on' : '', { 'aria-pressed': String(v === current) }),
-          ),
-        ),
-      );
     const draw = () => {
       const b = state.bout;
       const custom = b.target !== 5 && b.target !== 15;
+      const poule = b.pouleRef && state.poules.get(b.pouleRef.pouleId);
       fill(
         body,
-        h('h2', {}, 'Bout format'),
-        seg(
-          'Weapon',
-          [
-            ['foil', 'Foil'],
-            ['epee', 'Épée'],
-            ['sabre', 'Sabre'],
-          ],
-          b.weapon,
-          (w) => (dispatch({ type: 'setFormat', weapon: w }), draw()),
-        ),
-        seg(
-          'Touches to win',
-          [
-            [5, '5 · Poule'],
-            [15, '15 · DE'],
-            ['custom', custom ? `${b.target} · Custom` : 'Custom…'],
-          ],
-          custom ? 'custom' : b.target,
-          async (v) => {
-            if (v === 'custom') {
-              const n = await keypad({
-                title: 'Touches to win',
-                mode: 'number',
-                initial: String(b.target),
-                maxDigits: 2,
-              });
-              if (n == null || Number(n) < 1) return;
-              v = Number(n);
-            }
-            dispatch({ type: 'setFormat', target: v, de: v >= 10 });
-            draw();
-          },
-        ),
-        seg(
-          'Periods (DE: 3 × 3:00, 1:00 breaks)',
-          [
-            [false, 'Off'],
-            [true, 'On'],
-          ],
-          b.de,
-          (v) => (dispatch({ type: 'setFormat', de: v }), draw()),
-        ),
-        b.weapon === 'sabre' &&
-          seg(
-            'Clock in sabre',
+        sheetNav({ title: 'Bout Format', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        group(
+          { header: 'Weapon' },
+          segmented(
             [
-              [false, 'Hidden'],
-              [true, 'Shown'],
+              ['foil', 'Foil'],
+              ['epee', 'Épée'],
+              ['sabre', 'Sabre'],
             ],
-            b.showTimer,
-            (v) => (dispatch({ type: 'setFormat', showTimer: v }), draw()),
+            b.weapon,
+            (w) => (dispatch({ type: 'setFormat', weapon: w }), draw()),
+            'Weapon',
           ),
-        h(
-          'div',
-          { class: 'row gap' },
-          holdButton('New bout', () => (close(), newBout(), toast('New bout')), {
-            cls: 'grow',
+        ),
+        group(
+          { header: 'Touches to win', footer: '5 for poule bouts, 15 for direct elimination.' },
+          segmented(
+            [
+              [5, '5'],
+              [15, '15'],
+              ['custom', custom ? `${b.target}` : 'Custom'],
+            ],
+            custom ? 'custom' : b.target,
+            async (v) => {
+              if (v === 'custom') {
+                const n = await keypad({
+                  title: 'Touches to Win',
+                  mode: 'number',
+                  initial: String(b.target),
+                  maxDigits: 2,
+                });
+                if (n == null || Number(n) < 1) return;
+                v = Number(n);
+              }
+              dispatch({ type: 'setFormat', target: v, de: v >= 10 });
+              draw();
+            },
+            'Touches to win',
+          ),
+        ),
+        group(
+          {
+            footer:
+              b.weapon === 'sabre'
+                ? 'Sabre bouts usually run without a clock.'
+                : 'Periods: three 3-minute periods with a 1-minute break.',
+          },
+          row({
+            title: 'Periods',
+            subtitle: 'For direct elimination',
+            trailing: toggle(b.de, (v) => (dispatch({ type: 'setFormat', de: v }), draw()), 'Periods'),
+          }),
+          b.weapon === 'sabre' &&
+            row({
+              title: 'Show Clock',
+              trailing: toggle(
+                b.showTimer,
+                (v) => (dispatch({ type: 'setFormat', showTimer: v }), draw()),
+                'Show clock in sabre',
+              ),
+            }),
+        ),
+        group(
+          {},
+          poule &&
+            row({
+              title: 'Poule Sheet',
+              subtitle: poule.name,
+              chevron: true,
+              onClick: () => (close(), (location.hash = `#poule/${poule.id}`)),
+            }),
+          holdButton(h('span', { class: 'row-title' }, 'New Bout'), () => (close(), newBout(), toast('New bout')), {
+            cls: 'row tappable tone-danger',
             onTap: async () => {
               if (boutInProgress()) {
                 const ok = await confirmDialog({
                   title: 'Start a new bout?',
                   message: 'The current score and clock will be cleared.',
-                  confirm: 'New bout',
+                  confirm: 'New Bout',
                   danger: true,
                 });
                 if (!ok) return;
@@ -351,16 +362,9 @@ export function mountBoutView(root) {
               close();
               newBout();
             },
+            attrs: { 'aria-label': 'New bout' },
           }),
-          button('Done', () => close(), 'btn-primary grow'),
         ),
-        b.pouleRef &&
-          state.poules.has(b.pouleRef.pouleId) &&
-          button(
-            'Poule sheet ›',
-            () => (close(), (location.hash = `#poule/${b.pouleRef.pouleId}`)),
-            'btn-ghost btn-block',
-          ),
       );
     };
     draw();
@@ -372,18 +376,16 @@ export function mountBoutView(root) {
   function renderBanner(b) {
     const parts = [];
     let mode = '';
+    const who = (side) => h('span', { class: `who ${side}` }, b[side].name);
+    const sc = () => h('span', { class: 'sc' }, `${b[b.winner].score}–${b[other(b.winner)].score}`);
+    const undoBtn = () => button([icon('undo'), 'Undo'], doUndo, 'btn-gray');
     if (b.status === 'over') {
       mode = 'over';
       const reason = REASON_TEXT[b.reason];
       parts.push(
-        h('div', { class: 'banner-title' }, 'Bout over'),
-        h('div', { class: `banner-result ${b.winner}` }, resultText(b), reason && h('small', {}, ` (${reason})`)),
-        h(
-          'div',
-          { class: 'row gap' },
-          button('↶ Undo', doUndo, 'btn-ghost grow'),
-          button('Confirm result', onConfirm, 'btn-primary grow'),
-        ),
+        h('div', { class: 'banner-kicker' }, reason ? `Bout over · ${reason}` : 'Bout over'),
+        h('div', { class: 'banner-result' }, who(b.winner), ' wins ', sc()),
+        h('div', { class: 'actions' }, undoBtn(), button('Confirm result', onConfirm, 'btn-filled')),
       );
     } else if (b.status === 'confirmed') {
       mode = 'done';
@@ -393,44 +395,45 @@ export function mountBoutView(root) {
       // Look the poule up again on tap: the result is written after this renders.
       const goNext = () => startNextBout(state.poules.get(pid));
       parts.push(
-        h('div', { class: `banner-result ${b.winner}` }, `✓ ${resultText(b)}`),
+        h('div', { class: 'banner-result' }, icon('checkCircle'), who(b.winner), ' won ', sc()),
         poule
           ? h(
               'div',
-              { class: 'row gap' },
-              button('Poule sheet', () => (location.hash = `#poule/${pid}`), 'btn-ghost grow'),
+              { class: 'actions' },
+              button('Poule sheet', () => (location.hash = `#poule/${pid}`), 'btn-gray'),
               more
-                ? button('Next bout ▶', goNext, 'btn-primary grow')
-                : button('New bout', () => newBout(), 'btn-primary grow'),
+                ? button([icon('play'), 'Next bout'], goNext, 'btn-filled')
+                : button('New bout', () => newBout(), 'btn-filled'),
             )
           : h(
               'div',
-              { class: 'row gap' },
-              button('New bout', () => newBout(), 'btn-primary grow'),
+              { class: 'actions' },
+              button('New bout', () => newBout(), 'btn-filled'),
             ),
       );
     } else if (b.tiedAtTime) {
       mode = 'time';
       parts.push(
-        h('div', { class: 'banner-title' }, `Time — level at ${b.left.score}–${b.right.score}`),
-        h('div', { class: 'muted' }, 'One minute of sudden death. Draw priority first.'),
+        h('div', { class: 'banner-kicker' }, 'Time'),
         h(
           'div',
-          { class: 'row gap' },
-          button('↶ Undo', doUndo, 'btn-ghost'),
-          button('Draw priority', drawPriority, 'btn-primary grow'),
+          { class: 'banner-result' },
+          'Level at ',
+          h('span', { class: 'sc' }, `${b.left.score}–${b.right.score}`),
         ),
+        h('div', { class: 'banner-note' }, 'One minute of sudden death. Draw priority first.'),
+        h('div', { class: 'actions' }, undoBtn(), button('Draw priority', drawPriority, 'btn-filled')),
       );
     } else if (b.periodEnded) {
       mode = 'period';
       parts.push(
-        h('div', { class: 'banner-title' }, `End of period ${b.period}`),
+        h('div', { class: 'banner-kicker' }, `End of period ${b.period}`),
         h(
           'div',
-          { class: 'row gap' },
-          button('↶', doUndo, 'btn-ghost', { 'aria-label': 'Undo' }),
-          button('1:00 break', () => dispatch({ type: 'startBreak' }), 'grow'),
-          button(`Period ${b.period + 1}`, () => dispatch({ type: 'nextPeriod' }), 'btn-primary grow'),
+          { class: 'actions' },
+          iconButton('undo', doUndo, 'Undo', 'btn-gray'),
+          button('1:00 break', () => dispatch({ type: 'startBreak' }), 'btn-tinted'),
+          button(`Period ${b.period + 1}`, () => dispatch({ type: 'nextPeriod' }), 'btn-filled'),
         ),
       );
     }
@@ -487,7 +490,7 @@ export function mountBoutView(root) {
   function renderSide(b, s) {
     const f = b[s];
     const e = el[s];
-    e.name.textContent = f.name;
+    fill(e.name, h('span', { class: 'nm' }, f.name), icon('pencil'));
     e.num.textContent = f.score;
     if (e.lastScore !== null && e.lastScore !== f.score) {
       e.score.classList.remove('flash');
@@ -519,11 +522,11 @@ export function mountBoutView(root) {
     el.clock.classList.toggle('break', b.phase === 'break');
     let status = '';
     if (b.phase === 'break') status = 'Break';
-    else if (b.timer.running) status = b.priorityMinute ? 'Priority minute' : b.de ? `Period ${b.period} of 3` : '';
+    else if (b.timer.running) status = b.priorityMinute ? 'Priority' : b.de ? `Period ${b.period}` : '';
     else if (b.status !== 'active') status = '';
     else if (rem <= 0) status = 'Time';
-    else if (rem === b.timer.presetMs && !b.priorityMinute) status = 'Tap to start';
-    else status = b.priorityMinute ? 'Priority — tap to resume' : 'Halt — tap to resume';
+    else if (rem === b.timer.presetMs && !b.priorityMinute) status = 'Ready';
+    else status = b.priorityMinute ? 'Priority · Halt' : 'Halt';
     el.clockStatus.textContent = status;
 
     // Haptics at 10 s and at 0:00 (only when crossed live, not after a long background).
@@ -559,12 +562,11 @@ export function mountBoutView(root) {
       el.format,
       h(
         'span',
-        { class: 'fmt-main' },
-        h('b', {}, WEAPON_LABEL[b.weapon]),
-        ` · ${b.target}`,
-        h('span', { class: 'chev' }, ' ▾'),
+        { class: 'fmt-text' },
+        h('span', { class: 'fmt-main' }, `${WEAPON_LABEL[b.weapon]} · ${b.target}`),
+        poule && h('span', { class: 'fmt-sub' }, `${poule.name} · Bout ${pb?.n ?? '?'} of ${poule.bouts.length}`),
       ),
-      ...(poule ? [h('span', { class: 'fmt-sub' }, `${poule.name} · bout ${pb?.n ?? '?'}/${poule.bouts.length}`)] : []),
+      icon('chevronDown'),
     );
     el.undo.disabled = !b.history.length || b.status === 'confirmed';
     el.swap.disabled = b.status === 'confirmed';
@@ -572,17 +574,20 @@ export function mountBoutView(root) {
     renderSide(b, 'right');
     renderClock(b);
     const showClock = b.showTimer;
-    el.clock.hidden = !showClock;
+    el.clockRow.hidden = !showClock;
     el.clockCtl.hidden = !showClock;
+    fill(el.start, icon(b.timer.running ? 'pause' : 'play'));
+    el.start.classList.toggle('running', b.timer.running);
+    el.start.setAttribute('aria-label', b.timer.running ? 'Stop clock' : 'Start clock');
+    el.start.disabled = el.clock.disabled = b.status !== 'active' || b.tiedAtTime || b.periodEnded;
     const timerBusy = b.timer.running;
     el.set.disabled = timerBusy || b.status !== 'active';
     el.p3.disabled = el.p1.disabled = timerBusy || b.status !== 'active';
     el.reset.disabled = timerBusy;
-    el.clock.disabled = b.status !== 'active' || b.tiedAtTime || b.periodEnded;
     el.double.hidden = b.weapon !== 'epee';
     el.double.disabled = b.status !== 'active';
     el.period.hidden = !b.de;
-    el.period.textContent = `Period ${b.period}/3`;
+    el.period.textContent = `Period ${b.period} of 3`;
     el.extra.hidden = el.double.hidden && el.period.hidden;
     renderBanner(b);
 

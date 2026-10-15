@@ -65,7 +65,7 @@ async function keypadType(digits) {
 }
 async function giveCard(side, kind) {
   await tap(`[aria-label="Card ${side === 'left' ? L : R}"]`);
-  const btn = page.locator('.modal-wrap.open .btn').filter({ hasText: kind === 'yellow' ? /Yellow/ : /^Red card/ });
+  const btn = page.locator('.modal-wrap.open .btn').filter({ hasText: kind === 'yellow' ? /Yellow/ : /^Red Card/ });
   await btn.first().click();
 }
 async function waitClockBelow(ms) {
@@ -173,11 +173,11 @@ try {
   assert.match(res, /Alice wins 5–2/);
   await shot('04-bout-over');
   log(`banner: "${res}"`);
-  await page.locator('.banner').getByRole('button', { name: '↶ Undo' }).click();
+  await page.locator('.banner').getByRole('button', { name: 'Undo' }).click();
   assert.equal(await score('left'), 4);
   await touch('left');
   await page.locator('.banner').getByRole('button', { name: 'Confirm result' }).click();
-  assert.match(await page.locator('.banner-result').textContent(), /✓ Alice wins 5–2/);
+  assert.match(await page.locator('.banner-result').textContent(), /Alice won 5–2/);
   log('undo from banner, re-score, confirm');
 
   console.log('\nBout: priority');
@@ -208,8 +208,8 @@ try {
   await keypadType('1');
   await tap('.clock');
   await page.waitForSelector('.banner-over', { timeout: 5000 });
-  assert.match(await page.locator('.banner-result').textContent(), /on priority/);
-  log(`time out again: ${await page.locator('.banner-result').textContent()}`);
+  assert.match(await page.locator('.banner-kicker').textContent(), /on priority/);
+  log(`time out again: ${await page.locator('.banner').innerText()}`.replace(/\s+/g, ' '));
   await page.locator('.banner').getByRole('button', { name: 'Confirm result' }).click();
 
   console.log('\nBout: black card and épée double');
@@ -217,7 +217,7 @@ try {
   await tap('.format');
   await dialogButton('Sabre');
   assert.equal(await page.locator('.clock').isVisible(), false, 'sabre hides the clock');
-  await dialogButton('Shown');
+  await page.locator('.modal-wrap.open').getByRole('switch', { name: 'Show clock in sabre' }).click();
   assert.equal(await page.locator('.clock').isVisible(), true, 'clock can be shown in sabre');
   await dialogButton('Épée');
   const sheetText = await page.locator('.modal-wrap.open').innerText();
@@ -229,23 +229,24 @@ try {
   assert.deepEqual([await score('left'), await score('right')], [1, 1]);
   await tap('[aria-label="Card Right (green)"]');
   const black = page.locator('.modal-wrap.open .hold');
+  await page.waitForTimeout(500); // let the action sheet finish sliding in
   const bb = await black.boundingBox();
   await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(900);
   await page.mouse.up();
   await page.waitForSelector('.banner-over');
-  assert.match(await page.locator('.banner-result').textContent(), /black card/);
+  assert.match(await page.locator('.banner-kicker').textContent(), /black card/);
   await shot('08-black');
   log('double 1–1, held black card ends the bout');
-  await page.locator('.banner').getByRole('button', { name: '↶ Undo' }).click();
+  await page.locator('.banner').getByRole('button', { name: 'Undo' }).click();
   assert.equal(await page.locator('.banner-over').count(), 0, 'black card undone');
   log('black card undone');
 
   console.log('\nPoule: 5 fencers end to end');
   await page.locator('.tabbar [data-tab="poules"]').click();
   await shot('09-poules-empty');
-  await page.getByRole('button', { name: '＋ New' }).click();
+  await page.getByRole('button', { name: 'New poule', exact: true }).click();
   await page.locator('input[aria-label="Poule name"]').fill('Tuesday club night');
   const names = [
     ['Alice', 'Ealing'],
@@ -260,7 +261,7 @@ try {
     await page.getByRole('button', { name: 'Add', exact: true }).click();
   }
   await shot('10-create');
-  await page.getByRole('button', { name: /Create poule · 10 bouts/ }).click();
+  await page.getByRole('button', { name: /Create Poule · 10 Bouts/ }).click();
   await page.waitForSelector('table.sheet');
   await shot('11-sheet-new');
   log('poule created with 5 fencers, 10 bouts');
@@ -276,10 +277,10 @@ try {
   for (let i = 0; i < 7; i++) {
     if (i === 0) {
       // The épée bout above is still in progress: the app must ask first.
-      await page.getByRole('button', { name: 'Next bout ▶' }).click();
+      await page.getByRole('button', { name: 'Next bout' }).click();
       assert.match(await page.locator('.modal-wrap.open h2').textContent(), /Replace the bout in progress/);
       await dialogButton('Replace');
-    } else await page.locator('.banner').getByRole('button', { name: 'Next bout ▶' }).click();
+    } else await page.locator('.banner').getByRole('button', { name: 'Next bout' }).click();
     await page.waitForSelector('.bout');
     assert.equal(await page.locator('.side.left .name').textContent(), order[i][0]);
     assert.equal(await page.locator('.side.right .name').textContent(), order[i][1]);
@@ -320,7 +321,7 @@ try {
   await shot('15-sheet-finished');
   await page.locator('.standings').scrollIntoViewIfNeeded();
   await shot('16-standings');
-  const standings = await page.locator('.standings tbody tr').allInnerTexts();
+  const standings = await page.locator('.standings .row').allInnerTexts();
   log(`poule finished. Standings: ${standings.map((s) => s.replace(/\s+/g, ' ')).join(' | ')}`);
 
   const [csvDl] = await Promise.all([
@@ -341,18 +342,18 @@ try {
   console.log('\nHistory, persistence and offline');
   await page.locator('[aria-label="All poules"]').click();
   await page.locator('[aria-label="Actions for Tuesday club night"]').click();
-  await dialogButton('Duplicate (same fencers, new results)');
+  await dialogButton('Duplicate');
   await page.waitForSelector('table.sheet');
   await page.locator('[aria-label="All poules"]').click();
-  await waitCount('.poule-card', 2);
-  await page.locator('input.search').fill('copy');
-  await waitCount('.poule-card', 1);
+  await waitCount('.poule-row', 2);
+  await page.locator('input[aria-label="Search poules"]').fill('copy');
+  await waitCount('.poule-row', 1);
   await shot('18-history');
-  await page.locator('input.search').fill('');
+  await page.locator('input[aria-label="Search poules"]').fill('');
   await page.locator('[aria-label="Actions for Tuesday club night (copy)"]').click();
-  await dialogButton('Delete…');
   await dialogButton('Delete');
-  await waitCount('.poule-card', 1);
+  await dialogButton('Delete');
+  await waitCount('.poule-row', 1);
   log('duplicate, search, delete with confirmation');
 
   await page.locator('.tabbar [data-tab="bout"]').click();
@@ -373,7 +374,7 @@ try {
   await page.waitForSelector('body.ready');
   assert.equal(await score('left'), 3);
   await page.locator('.tabbar [data-tab="poules"]').click();
-  await waitCount('.poule-card', 1);
+  await waitCount('.poule-row', 1);
   await context.setOffline(false);
   log('reloads and runs fully offline');
 
