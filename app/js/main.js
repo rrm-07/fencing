@@ -4,6 +4,7 @@
 import { state, load, subscribe } from './state.js';
 import { mountBoutView } from './ui/boutView.js';
 import { mountPoulesView, joinFlow } from './ui/pouleView.js';
+import { mountTeamsView } from './ui/teamView.js';
 import { startSync } from './sync.js';
 import { applyTheme } from './ui/settings.js';
 import { setHapticsEnabled, vibrate } from './ui/device.js';
@@ -17,8 +18,10 @@ async function boot() {
 
   const boutRoot = document.getElementById('view-bout');
   const poulesRoot = document.getElementById('view-poules');
+  const teamsRoot = document.getElementById('view-teams');
   const bout = mountBoutView(boutRoot);
   const poules = mountPoulesView(poulesRoot);
+  const teams = mountTeamsView(teamsRoot);
   const tabs = document.querySelectorAll('.tabbar [data-tab]');
 
   function route() {
@@ -38,13 +41,22 @@ async function boot() {
       tab = 'poules';
       sub = { view: 'new' };
     } else if (hash.startsWith('poules')) tab = 'poules';
+    else if (hash.startsWith('team/')) {
+      tab = 'teams';
+      sub = { view: 'match', id: decodeURIComponent(hash.slice(5)) };
+    } else if (hash === 'teams/new') {
+      tab = 'teams';
+      sub = { view: 'new' };
+    } else if (hash.startsWith('teams')) tab = 'teams';
     closeAllModals();
     if (document.body.dataset.tab !== tab) clearToast();
     document.body.dataset.tab = tab;
     boutRoot.hidden = tab !== 'bout';
     poulesRoot.hidden = tab !== 'poules';
+    teamsRoot.hidden = tab !== 'teams';
     tabs.forEach((t) => t.setAttribute('aria-current', String(t.dataset.tab === tab)));
     if (tab === 'poules') poules.show(sub);
+    if (tab === 'teams') teams.show(sub);
     bout.render();
     if (joinCode) joinFlow(joinCode);
   }
@@ -52,7 +64,11 @@ async function boot() {
   tabs.forEach((t) =>
     t.addEventListener('click', () => {
       if (t.dataset.tab === 'bout') location.hash = '#bout';
-      else {
+      else if (t.dataset.tab === 'teams') {
+        const last = sessionStorage.getItem('piste:lastMatch');
+        location.hash =
+          last && state.matches.has(last) && document.body.dataset.tab !== 'teams' ? `#team/${last}` : '#teams';
+      } else {
         // Return to the poule you were last looking at, if any.
         const last = sessionStorage.getItem('piste:lastPoule');
         location.hash =
@@ -62,9 +78,12 @@ async function boot() {
   );
   window.addEventListener('hashchange', () => {
     const m = location.hash.match(/^#poule\/(.+)$/);
+    const t = location.hash.match(/^#team\/(.+)$/);
     try {
       if (m) sessionStorage.setItem('piste:lastPoule', decodeURIComponent(m[1]));
       else if (location.hash === '#poules') sessionStorage.removeItem('piste:lastPoule');
+      if (t) sessionStorage.setItem('piste:lastMatch', decodeURIComponent(t[1]));
+      else if (location.hash === '#teams') sessionStorage.removeItem('piste:lastMatch');
     } catch {
       /* storage blocked */
     }

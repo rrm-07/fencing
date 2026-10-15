@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node scripts/serve.js",
     "test": "node --test tests/*.test.js",
-    "e2e": "node e2e/run.js && node e2e/share.js",
+    "e2e": "node e2e/run.js && node e2e/team.js && node e2e/share.js",
     "mock-share": "node scripts/mock-share-server.js",
     "icons": "node scripts/make-icons.js"
   },

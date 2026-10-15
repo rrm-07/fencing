@@ -72,10 +72,12 @@ try {
   }
   await org.page.getByRole('button', { name: /Create Poule/ }).click();
   await org.page.waitForSelector('table.sheet');
-  await org.page.locator('[aria-label="Poule actions"]').click();
-  await dialogButton(org.page, 'Share with a Code…');
+  // The unshared sheet offers a clear "Share with a Code" row.
+  await org.page.locator('.share-cta').click();
   await dialogButton(org.page, 'Create Code');
   await org.page.waitForSelector('.share-code');
+  assert.ok(await org.page.locator('.modal-wrap.open svg.qr').isVisible(), 'QR code shown');
+  await org.page.waitForTimeout(500);
   const code = (await org.page.locator('.share-code').textContent()).trim();
   assert.match(code, /^[A-HJKMNP-Z2-9]{3}-[A-HJKMNP-Z2-9]{3}$/);
   await org.page.screenshot({ path: `${shots}s1-share-code.png` });
@@ -159,6 +161,28 @@ try {
     /No poule with code ZZZZZZ/.test(document.querySelector('.toast')?.textContent),
   );
   log('unknown code gives a clear message');
+
+  // A member can only remove their own copy.
+  await third.page.locator('[aria-label="Actions for Saturday U14"]').click();
+  await third.page.waitForSelector('.modal-wrap.open .action-btn');
+  const labels = await third.page.locator('.modal-wrap.open .action-btn').allTextContents();
+  assert.ok(labels.includes('Remove from This Phone') && !labels.includes('Delete'), labels.join(','));
+  await third.page.locator('.modal-wrap.open').getByRole('button', { name: 'Cancel' }).click();
+  log('members only get "Remove from This Phone"');
+
+  // The organiser deletes it for everyone: it disappears from the other phones.
+  await parent.page.locator('[aria-label="All poules"]').click();
+  await parent.page.waitForSelector('.poule-row');
+  await org.page.locator('[aria-label="Poule actions"]').click();
+  await dialogButton(org.page, 'Delete');
+  await dialogButton(org.page, 'Delete for Everyone');
+  await dialogButton(org.page, 'Delete');
+  await org.page.waitForFunction(() => location.hash === '#poules');
+  await parent.page.waitForFunction(() => !document.querySelector('.poule-row'), null, { timeout: 8000 });
+  await third.page.waitForFunction(() => !document.querySelector('.poule-row'), null, { timeout: 8000 });
+  const gone = await (await fetch(`http://localhost:${DB_PORT}/poules/${code.replace('-', '')}.json`)).json();
+  assert.equal(gone, null, 'removed from the server');
+  log('organiser’s "Delete for Everyone" removed it from the server and every phone');
 
   assert.deepEqual(errors, [], 'no page errors');
   console.log('\nAll sharing checks passed.');

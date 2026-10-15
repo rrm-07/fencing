@@ -260,6 +260,34 @@ export function confirmDialog({ title, message = '', confirm = 'OK', cancel = 'C
   ).then((v) => v === true);
 }
 
+/**
+ * Alert with several stacked choices. buttons: [{ id, label, tone?: 'danger', bold? }]
+ * A Cancel button is added last. Resolves with the chosen id, or null.
+ */
+export function choiceDialog({ title, message = '', buttons }) {
+  return modal(
+    (close) =>
+      h(
+        'div',
+        { class: 'alert' },
+        h('div', { class: 'alert-body' }, h('h2', {}, title), message && h('p', {}, message)),
+        h(
+          'div',
+          { class: 'alert-actions stacked' },
+          ...buttons.map((b) =>
+            button(
+              b.label,
+              () => close(b.id),
+              `alert-btn ${b.bold ? 'bold' : ''} ${b.tone === 'danger' ? 'danger' : ''}`,
+            ),
+          ),
+          button('Cancel', () => close(null), 'alert-btn bold'),
+        ),
+      ),
+    { kind: 'alert' },
+  ).then((v) => v ?? null);
+}
+
 export function promptText({
   title,
   value = '',

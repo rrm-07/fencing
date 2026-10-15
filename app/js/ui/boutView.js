@@ -19,6 +19,7 @@ import {
   row,
   segmented,
   toggle,
+  tile,
 } from './dom.js';
 import { haptics, setWakeLock } from './device.js';
 import { state, dispatch, subscribe, confirmBout, newBout, boutInProgress } from '../state.js';
@@ -27,6 +28,8 @@ import * as T from '../core/timer.js';
 import { progress, nextBout } from '../core/poule.js';
 import { openSettings } from './settings.js';
 import { startNextBout } from './pouleView.js';
+import { startNextLeg } from './teamView.js';
+import * as Team from '../core/team.js';
 
 const SIDE_LABEL = { left: 'Left (red)', right: 'Right (green)' };
 
@@ -42,12 +45,14 @@ export function mountBoutView(root) {
     const cards = h('span', { class: 'card-chips', 'aria-hidden': 'true' });
     const prio = h('span', { class: 'prio-badge', hidden: true }, 'PRIORITY');
     const num = h('span', { class: 'num' }, '0');
+    const teamLabel = h('span', { class: 'team-label', hidden: true });
     const score = h(
       'button',
       { type: 'button', class: 'score', 'aria-label': `Add touch ${SIDE_LABEL[s]}` },
       cards,
       prio,
       num,
+      teamLabel,
     );
     score.addEventListener('click', () => {
       if (suppressed()) return;
@@ -64,7 +69,7 @@ export function mountBoutView(root) {
     const card = button([h('span', { class: 'card-icon' }), 'Card'], () => cardSheet(s), 'card-btn', {
       'aria-label': `Card ${SIDE_LABEL[s]}`,
     });
-    el[s] = { name, score, num, cards, prio, minus, card, lastScore: null };
+    el[s] = { name, score, num, cards, prio, minus, card, teamLabel, lastScore: null };
     return h('div', { class: `side ${s}` }, name, score, h('div', { class: 'side-ctl' }, minus, card));
   };
 
@@ -276,7 +281,17 @@ export function mountBoutView(root) {
       const poule = b.pouleRef && state.poules.get(b.pouleRef.pouleId);
       fill(
         body,
-        sheetNav({ title: 'Bout Format', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        sheetNav({ title: 'Bout', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        group(
+          {},
+          row({
+            lead: tile('grid', 'blue'),
+            title: 'Choose Bout',
+            subtitle: 'Referee a bout from a poule or team match',
+            chevron: true,
+            onClick: () => (close(), chooseBout()),
+          }),
+        ),
         group(
           { header: 'Weapon' },
           segmented(
@@ -379,7 +394,76 @@ export function mountBoutView(root) {
     const who = (side) => h('span', { class: `who ${side}` }, b[side].name);
     const sc = () => h('span', { class: 'sc' }, `${b[b.winner].score}–${b[other(b.winner)].score}`);
     const undoBtn = () => button([icon('undo'), 'Undo'], doUndo, 'btn-gray');
-    if (b.status === 'over') {
+    const match = b.teamRef && state.matches.get(b.teamRef.matchId);
+    const teamScore = () =>
+      h(
+        'div',
+        { class: 'banner-result' },
+        h('span', { class: 'who left' }, b.left.team),
+        h('span', { class: 'sc' }, ` ${b.left.score}–${b.right.score} `),
+        h('span', { class: 'who right' }, b.right.team),
+      );
+    if (b.relay && b.status === 'over') {
+      mode = 'over';
+      const reason = REASON_TEXT[b.reason];
+      const ends = b.relay.final || b.reason === 'black' || Math.max(b.left.score, b.right.score) >= Team.MATCH_TARGET;
+      parts.push(
+        h(
+          'div',
+          { class: 'banner-kicker' },
+          `${ends ? 'Match over' : `Leg ${b.relay.leg} of ${b.relay.legs} over`}${reason ? ` · ${reason}` : ''}`,
+        ),
+        ends && b.winner
+          ? h(
+              'div',
+              { class: 'banner-result' },
+              h('span', { class: `who ${b.winner}` }, b[b.winner].team),
+              ' win ',
+              sc(),
+            )
+          : teamScore(),
+        h(
+          'div',
+          { class: 'actions' },
+          undoBtn(),
+          button(ends ? 'Confirm result' : 'Confirm leg', onConfirm, 'btn-filled'),
+        ),
+      );
+    } else if (b.relay && b.status === 'confirmed') {
+      mode = 'done';
+      const mid = match?.id;
+      const more = match && Team.nextLeg(match);
+      parts.push(
+        match?.status === 'finished'
+          ? h(
+              'div',
+              { class: 'banner-result' },
+              icon('checkCircle'),
+              h(
+                'span',
+                { class: `who ${match.winner === b.left.id ? 'left' : 'right'}` },
+                match.teams[match.winner].name,
+              ),
+              ' won ',
+              h('span', { class: 'sc' }, `${Team.score(match).a}–${Team.score(match).b}`),
+            )
+          : h(
+              'div',
+              { class: 'banner-result' },
+              icon('checkCircle'),
+              `Leg ${b.relay.leg} · `,
+              h('span', { class: 'sc' }, `${b.left.score}–${b.right.score}`),
+            ),
+        h(
+          'div',
+          { class: 'actions' },
+          mid && button('Match', () => (location.hash = `#team/${mid}`), 'btn-gray'),
+          more
+            ? button([icon('play'), 'Next leg'], () => startNextLeg(state.matches.get(mid)), 'btn-filled')
+            : button('Choose bout', chooseBout, 'btn-filled'),
+        ),
+      );
+    } else if (b.status === 'over') {
       mode = 'over';
       const reason = REASON_TEXT[b.reason];
       parts.push(
@@ -408,6 +492,7 @@ export function mountBoutView(root) {
           : h(
               'div',
               { class: 'actions' },
+              pendingCount() > 0 && button('Choose bout', chooseBout, 'btn-gray'),
               button('New bout', () => newBout(), 'btn-filled'),
             ),
       );
@@ -438,7 +523,8 @@ export function mountBoutView(root) {
       );
     }
     const pr = b.pouleRef && state.poules.get(b.pouleRef.pouleId);
-    const key = `${mode}|${b.winner}|${b.status}|${b.period}|${b.left.score}-${b.right.score}|${b.left.name}|${b.right.name}|${pr ? progress(pr).done : ''}`;
+    const mt = b.teamRef && state.matches.get(b.teamRef.matchId);
+    const key = `${mode}|${b.winner}|${b.status}|${b.period}|${b.left.score}-${b.right.score}|${b.left.name}|${b.right.name}|${pr ? progress(pr).done : ''}|${mt ? `${mt.status}${mt.updatedAt}` : ''}`;
     if (el.banner.dataset.key === key) return;
     el.banner.dataset.key = key;
     el.banner.hidden = !mode;
@@ -447,10 +533,121 @@ export function mountBoutView(root) {
   }
 
   function onConfirm() {
-    const poule = confirmBout();
+    const saved = confirmBout();
     haptics.win();
-    if (poule) toast(`Saved to ${poule.name} (${progress(poule).done}/${progress(poule).total})`);
+    if (saved?.kind === 'team') {
+      const sc = Team.score(saved);
+      toast(`Leg saved · ${saved.teams.A.name} ${sc.a}–${sc.b} ${saved.teams.B.name}`);
+    } else if (saved) toast(`Saved to ${saved.name} (${progress(saved).done}/${progress(saved).total})`);
     else toast('Result saved');
+  }
+
+  /** How many poule bouts / team legs are waiting to be fenced. */
+  function pendingCount() {
+    let n = 0;
+    for (const p of state.poules.values())
+      if (p.status !== 'finished') n += p.bouts.filter((x) => x.winnerId == null).length;
+    for (const m of state.matches.values()) if (m.status !== 'finished') n += 1;
+    return n;
+  }
+
+  /** Pick a poule bout (or a team leg) to referee from the scorer. */
+  function chooseBout() {
+    return modal((close) => {
+      const go = (fn) => () => (close(), fn());
+      const poules = [...state.poules.values()]
+        .filter((p) => p.status !== 'finished')
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+      const matches = [...state.matches.values()].filter((m) => m.status !== 'finished');
+      const cur = state.bout;
+      return h(
+        'div',
+        { class: 'sheet-body' },
+        sheetNav({ title: 'Choose Bout', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        !poules.length &&
+          !matches.length &&
+          h(
+            'div',
+            { class: 'empty', style: { paddingTop: '24px' } },
+            icon('grid'),
+            h('h2', {}, 'Nothing to Referee'),
+            h('p', {}, 'Create a poule or a team match first, then pick its bouts here.'),
+          ),
+        ...poules.map((p) => {
+          const nb = nextBout(p);
+          const nm = (id) => p.fencers.find((f) => f.id === id)?.name ?? '?';
+          return group(
+            { header: p.name, footer: `${progress(p).done} of ${p.bouts.length} bouts fenced` },
+            ...p.bouts
+              .filter((x) => x.winnerId == null)
+              .map((x) =>
+                row({
+                  lead: h('span', { class: 'bout-n' }, x.n),
+                  title: h(
+                    'span',
+                    { class: 'bout-names' },
+                    h('span', { class: 'red-text' }, nm(x.leftId)),
+                    h('span', { class: 'l' }, ' vs '),
+                    h('span', { class: 'green-text' }, nm(x.rightId)),
+                  ),
+                  trailing:
+                    cur.pouleRef?.boutId === x.id && cur.status !== 'confirmed'
+                      ? h('span', { class: 'tag tag-live' }, 'On piste')
+                      : nb?.id === x.id
+                        ? h('span', { class: 'tag tag-next' }, 'Up next')
+                        : null,
+                  chevron: true,
+                  onClick: go(() => startNextBout(p, x)),
+                  attrs: { 'aria-label': `Bout ${x.n}: ${nm(x.leftId)} vs ${nm(x.rightId)}` },
+                }),
+              ),
+          );
+        }),
+        ...matches.map((m) => {
+          const l = Team.nextLeg(m);
+          const nm = (id) => Team.fencerById(m, id)?.name ?? '?';
+          const sc = Team.score(m);
+          return group(
+            { header: m.name, footer: `Team match · ${sc.a}–${sc.b}` },
+            l &&
+              row({
+                lead: h('span', { class: 'bout-n' }, `L${l.n}`),
+                title: h(
+                  'span',
+                  { class: 'bout-names' },
+                  h('span', { class: 'red-text' }, nm(l.aId)),
+                  h('span', { class: 'l' }, ' vs '),
+                  h('span', { class: 'green-text' }, nm(l.bId)),
+                ),
+                subtitle: `Leg ${l.n} of ${Team.LEGS} · to ${l.target}`,
+                chevron: true,
+                onClick: go(() => startNextLeg(m, l)),
+                attrs: { 'aria-label': `Leg ${l.n}: ${nm(l.aId)} vs ${nm(l.bId)}` },
+              }),
+          );
+        }),
+        group(
+          { footer: 'A free bout isn’t saved to any poule.' },
+          row({
+            lead: icon('plus'),
+            title: 'Free Bout',
+            tone: 'accent',
+            onClick: go(async () => {
+              if (boutInProgress()) {
+                const ok = await confirmDialog({
+                  title: 'Start a new bout?',
+                  message: 'The current score and clock will be cleared.',
+                  confirm: 'New Bout',
+                  danger: true,
+                });
+                if (!ok) return;
+              }
+              newBout({ keepNames: !cur.pouleRef && !cur.teamRef });
+            }),
+          }),
+        ),
+      );
+    });
   }
 
   let drawing = false;
@@ -491,6 +688,8 @@ export function mountBoutView(root) {
     const f = b[s];
     const e = el[s];
     fill(e.name, h('span', { class: 'nm' }, f.name), icon('pencil'));
+    e.teamLabel.hidden = !f.team;
+    e.teamLabel.textContent = f.team ?? '';
     e.num.textContent = f.score;
     if (e.lastScore !== null && e.lastScore !== f.score) {
       e.score.classList.remove('flash');
@@ -555,16 +754,25 @@ export function mountBoutView(root) {
   function render() {
     const b = state.bout;
     el.root.className = `bout weapon-${b.weapon} status-${b.status}${b.de ? ' de' : ''}${b.showTimer ? '' : ' no-timer'}${el.root.classList.contains('drawing') ? ' drawing' : ''}`;
-    // The format chip doubles as the poule label for poule bouts.
+    // The format chip doubles as the poule / match label, or invites you to
+    // pick a poule bout when this is a free bout.
     const poule = b.pouleRef && state.poules.get(b.pouleRef.pouleId);
     const pb = poule?.bouts.find((x) => x.id === b.pouleRef.boutId);
+    const match = b.teamRef && state.matches.get(b.teamRef.matchId);
+    let main = `${WEAPON_LABEL[b.weapon]} · ${b.target}`;
+    let sub = null;
+    if (match) {
+      main = `Leg ${b.teamRef.leg} · to ${b.target}`;
+      sub = match.name;
+    } else if (poule) sub = `${poule.name} · Bout ${pb?.n ?? '?'} of ${poule.bouts.length}`;
+    else if (!boutInProgress() && pendingCount() > 0) sub = 'Choose a poule bout ›';
     fill(
       el.format,
       h(
         'span',
         { class: 'fmt-text' },
-        h('span', { class: 'fmt-main' }, `${WEAPON_LABEL[b.weapon]} · ${b.target}`),
-        poule && h('span', { class: 'fmt-sub' }, `${poule.name} · Bout ${pb?.n ?? '?'} of ${poule.bouts.length}`),
+        h('span', { class: 'fmt-main' }, main),
+        sub && h('span', { class: `fmt-sub${!poule && !match ? ' accent' : ''}` }, sub),
       ),
       icon('chevronDown'),
     );
@@ -636,7 +844,7 @@ export function mountBoutView(root) {
   });
 
   subscribe((evt) => {
-    if (evt.type === 'bout' || evt.type === 'poules' || evt.type === 'tab') render();
+    if (evt.type === 'bout' || evt.type === 'poules' || evt.type === 'matches' || evt.type === 'tab') render();
   });
   render();
   return { render };

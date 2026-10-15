@@ -1,220 +1,193 @@
-// Poule exports: CSV file, shareable PNG image and a printable page.
+// Poule and team-match exports: CSV, shareable image and printable page,
+// all built from one report description (see report.js).
 
-import { h, fill, download, toast } from './dom.js';
 import { toCsv, stats, ranking, rankLabel, cellText, formatVM, fencerById, progress } from '../core/poule.js';
+import * as Team from '../core/team.js';
 import { WEAPON_LABEL } from '../core/bout.js';
+import { slug, shareReportImage, printReport, downloadCsv } from './report.js';
 
-const slug = (s) =>
-  String(s)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || 'poule';
-const fileBase = (p) => `${slug(p.name)}-${p.date}`;
+const prettyDate = (d) => {
+  const dt = new Date(`${d}T12:00:00`);
+  return Number.isNaN(dt.getTime())
+    ? d
+    : dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+};
+const signed = (n) => (n > 0 ? `+${n}` : String(n));
 
-async function shareOrDownload(file, title) {
-  try {
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title });
-      return;
-    }
-  } catch (e) {
-    if (e?.name === 'AbortError') return; // user closed the share sheet
-  }
-  download(file.name, file);
-}
+/* ---------- poules ---------- */
 
-export function exportCsv(p) {
-  const blob = new Blob([toCsv(p)], { type: 'text/csv;charset=utf-8' });
-  download(`${fileBase(p)}.csv`, blob);
-  toast('CSV saved');
-}
-
-/** Draw the poule sheet onto a canvas (light, print-friendly colours). */
-export function drawSheet(p, scale = 2) {
-  const n = p.fencers.length;
+export function pouleReport(p) {
   const st = stats(p);
-  const ranks = new Map(ranking(p).map((r) => [r.id, rankLabel(r)]));
-  const pad = 24;
-  const rowH = 44;
-  const nameW = 190;
-  const cellW = 46;
-  const resCols = ['V', 'V/M', 'TS', 'TR', 'Ind', 'Rank'];
-  const resW = 54;
-  const headH = 84;
-  const width = pad * 2 + 34 + nameW + n * cellW + resCols.length * resW;
-  const height = pad * 2 + headH + rowH * (n + 1) + 30;
-  const c = document.createElement('canvas');
-  c.width = width * scale;
-  c.height = height * scale;
-  const g = c.getContext('2d');
-  g.scale(scale, scale);
-  g.fillStyle = '#fff';
-  g.fillRect(0, 0, width, height);
-  const font = (size, weight = 400) => `${weight} ${size}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-  g.fillStyle = '#111';
-  g.font = font(22, 700);
-  g.textBaseline = 'middle';
-  g.fillText(p.name, pad, pad + 14);
-  g.font = font(14);
-  g.fillStyle = '#555';
-  const prog = progress(p);
-  g.fillText(`${p.date} · ${WEAPON_LABEL[p.weapon]} · ${n} fencers · ${prog.done}/${prog.total} bouts`, pad, pad + 42);
+  const ranks = ranking(p);
+  const rankOf = new Map(ranks.map((r) => [r.id, r]));
+  const pr = progress(p);
+  const n = p.fencers.length;
+  return {
+    title: p.name,
+    subtitle: `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]} · ${n} fencers · ${pr.done} of ${pr.total} bouts`,
+    sections: [
+      {
+        title: 'Poule sheet',
+        columns: [
+          { label: '#', min: 34 },
+          { label: 'Fencer', align: 'left', min: 120 },
+          ...p.fencers.map((_, i) => ({ label: String(i + 1), min: 46 })),
+          { label: 'V' },
+          { label: 'V/M', min: 52 },
+          { label: 'TS' },
+          { label: 'TR' },
+          { label: 'Ind' },
+          { label: 'Rank', min: 50 },
+        ],
+        rows: p.fencers.map((f, i) => {
+          const s = st.get(f.id);
+          const r = rankOf.get(f.id);
+          return [
+            { text: i + 1, tone: 'muted' },
+            { text: f.name, bold: true },
+            ...p.fencers.map((o) => {
+              if (o.id === f.id) return { text: '', fill: 'diag' };
+              const t = cellText(p, f.id, o.id);
+              return { text: t, tone: t.startsWith('V') ? 'win' : 'loss', bold: t.startsWith('V') };
+            }),
+            s.V,
+            formatVM(s.VM),
+            s.TS,
+            s.TR,
+            signed(s.Ind),
+            { text: s.M ? rankLabel(r) : '–', bold: true },
+          ];
+        }),
+      },
+      {
+        title: 'Standings',
+        columns: [
+          { label: 'Rank', min: 52 },
+          { label: 'Fencer', align: 'left', min: 140 },
+          { label: 'Club', align: 'left' },
+          { label: 'V' },
+          { label: 'M' },
+          { label: 'V/M', min: 52 },
+          { label: 'Ind' },
+          { label: 'TS' },
+        ],
+        rows: ranks.map((r) => [
+          { text: r.M ? rankLabel(r) : '–', bold: true, fill: r.M && r.rank === 1 ? 'gold' : null },
+          { text: r.fencer.name, bold: true },
+          { text: r.fencer.club ?? '', tone: 'muted' },
+          r.V,
+          r.M,
+          formatVM(r.VM),
+          signed(r.Ind),
+          r.TS,
+        ]),
+      },
+      {
+        title: 'Bouts',
+        printOnly: true,
+        columns: [
+          { label: '#' },
+          { label: 'Left', align: 'left' },
+          { label: 'Score' },
+          { label: 'Right', align: 'left' },
+        ],
+        rows: p.bouts.map((b) => {
+          const done = b.winnerId != null;
+          const nm = (id) => ({ text: fencerById(p, id)?.name ?? '', bold: done && b.winnerId === id });
+          return [b.n, nm(b.leftId), done ? `${b.scoreL}–${b.scoreR}` : '', nm(b.rightId)];
+        }),
+      },
+    ],
+  };
+}
 
-  const x0 = pad;
-  const y0 = pad + headH;
-  const colX = (i) => x0 + 34 + nameW + i * cellW;
-  const resX = (i) => colX(n) + i * resW;
-  g.strokeStyle = '#999';
-  g.lineWidth = 1;
-  // Header row
-  g.font = font(13, 700);
-  g.fillStyle = '#333';
-  g.textAlign = 'center';
-  for (let i = 0; i < n; i++) g.fillText(String(i + 1), colX(i) + cellW / 2, y0 + rowH / 2);
-  resCols.forEach((t, i) => g.fillText(t, resX(i) + resW / 2, y0 + rowH / 2));
-  g.textAlign = 'left';
-  g.fillText('Fencer', x0 + 34, y0 + rowH / 2);
+const pouleFile = (p, ext) => `${slug(p.name)}-${p.date}.${ext}`;
+export const exportCsv = (p) => downloadCsv(toCsv(p), pouleFile(p, 'csv'));
+export const exportImage = (p) => shareReportImage(pouleReport(p), pouleFile(p, 'png'));
+export const printPoule = (p) => printReport(pouleReport(p));
 
-  p.fencers.forEach((f, r) => {
-    const y = y0 + rowH * (r + 1);
-    g.textAlign = 'center';
-    g.font = font(14, 700);
-    g.fillStyle = '#333';
-    g.fillText(String(r + 1), x0 + 17, y + rowH / 2);
-    g.textAlign = 'left';
-    g.font = font(15, 600);
-    g.fillStyle = '#111';
-    const label = f.club ? `${f.name}` : f.name;
-    g.fillText(fit(g, label, nameW - 8), x0 + 34, y + rowH / 2 - (f.club ? 7 : 0));
-    if (f.club) {
-      g.font = font(11);
-      g.fillStyle = '#666';
-      g.fillText(fit(g, f.club, nameW - 8), x0 + 34, y + rowH / 2 + 10);
-    }
-    g.textAlign = 'center';
-    p.fencers.forEach((o, ci) => {
-      const x = colX(ci);
-      if (o.id === f.id) {
-        g.fillStyle = '#bbb';
-        g.fillRect(x, y, cellW, rowH);
-        return;
-      }
-      const t = cellText(p, f.id, o.id);
-      g.font = font(15, t.startsWith('V') ? 800 : 400);
-      g.fillStyle = t.startsWith('V') ? '#0a7a2f' : '#b3261e';
-      if (t) g.fillText(t, x + cellW / 2, y + rowH / 2);
-    });
-    const s = st.get(f.id);
-    const vals = [s.V, formatVM(s.VM), s.TS, s.TR, s.Ind, ranks.get(f.id)];
-    vals.forEach((v, i) => {
-      g.font = font(15, i === 5 ? 800 : 500);
-      g.fillStyle = '#111';
-      g.fillText(String(v), resX(i) + resW / 2, y + rowH / 2);
-    });
-  });
-  // Grid lines
-  g.beginPath();
-  for (let r = 0; r <= n + 1; r++) {
-    g.moveTo(x0, y0 + r * rowH + 0.5);
-    g.lineTo(resX(resCols.length), y0 + r * rowH + 0.5);
-  }
-  const vlines = [
-    x0,
-    x0 + 34,
-    colX(0),
-    ...Array.from({ length: n }, (_, i) => colX(i + 1)),
-    ...resCols.map((_, i) => resX(i + 1)),
+/* ---------- team matches ---------- */
+
+export function teamReport(m) {
+  const { a, b } = Team.score(m);
+  const A = m.teams.A;
+  const B = m.teams.B;
+  const name = (id) => Team.fencerById(m, id)?.name ?? '';
+  const done = m.legs.filter(Team.legDone).length;
+  const note = m.winner
+    ? `${m.teams[m.winner].name} win${m.decided?.reason === 'priority' ? ' on priority' : m.decided?.reason === 'black' ? ' (black card)' : ''}`
+    : `In progress · ${done} of ${Team.LEGS} legs`;
+  const lineup = (t, k) => [
+    { text: t.name, bold: true, tone: k === 'A' ? 'red' : 'green' },
+    ...t.fencers.map((f) => f.name),
+    t.reserve ? `${t.reserve.name}${t.subbed ? ' (on)' : ''}` : '–',
   ];
-  for (const x of vlines) {
-    g.moveTo(x + 0.5, y0);
-    g.lineTo(x + 0.5, y0 + rowH * (n + 1));
-  }
-  g.stroke();
-  g.textAlign = 'left';
-  g.font = font(11);
-  g.fillStyle = '#888';
-  g.fillText('Scored with Piste', pad, height - pad / 2 - 6);
-  return c;
+  return {
+    title: m.name,
+    subtitle: `${prettyDate(m.date)} · ${WEAPON_LABEL[m.weapon]} · Team relay to ${Team.MATCH_TARGET}`,
+    hero: { left: { label: A.name, value: a }, right: { label: B.name, value: b }, note },
+    sections: [
+      {
+        title: 'Line-ups',
+        columns: [
+          { label: 'Team', align: 'left', min: 120 },
+          { label: '1 / 4', align: 'left' },
+          { label: '2 / 5', align: 'left' },
+          { label: '3 / 6', align: 'left' },
+          { label: 'Reserve', align: 'left' },
+        ],
+        rows: [lineup(A, 'A'), lineup(B, 'B')],
+      },
+      {
+        title: 'Legs',
+        columns: [
+          { label: 'Leg' },
+          { label: 'To' },
+          { label: A.name, align: 'left', min: 110 },
+          { label: B.name, align: 'left', min: 110 },
+          { label: 'Touches', min: 80 },
+          { label: 'Score', min: 72 },
+        ],
+        rows: m.legs.map((l) => {
+          if (!Team.legDone(l)) return [l.n, l.target, name(l.aId), name(l.bId), { text: '–', tone: 'muted' }, ''];
+          const s = Team.legStart(m, l.n);
+          const end = [s.a + l.touchesA, s.b + l.touchesB];
+          return [
+            l.n,
+            l.target,
+            { text: name(l.aId), bold: l.touchesA > l.touchesB },
+            { text: name(l.bId), bold: l.touchesB > l.touchesA },
+            `${l.touchesA}–${l.touchesB}`,
+            { text: `${end[0]}–${end[1]}`, bold: true },
+          ];
+        }),
+      },
+      {
+        title: 'Fencers',
+        columns: [
+          { label: 'Team', align: 'left' },
+          { label: 'Fencer', align: 'left', min: 120 },
+          { label: 'Legs' },
+          { label: 'Scored' },
+          { label: 'Received' },
+          { label: 'Ind' },
+        ],
+        rows: Team.fencerStats(m)
+          .filter((s) => !s.reserve || s.legs > 0)
+          .map((s) => [
+            { text: m.teams[s.team].name, tone: s.team === 'A' ? 'red' : 'green' },
+            { text: s.name, bold: true },
+            s.legs,
+            s.TS,
+            s.TR,
+            { text: signed(s.Ind), tone: s.Ind > 0 ? 'win' : s.Ind < 0 ? 'loss' : null, bold: true },
+          ]),
+      },
+    ],
+  };
 }
 
-function fit(g, text, max) {
-  if (g.measureText(text).width <= max) return text;
-  let t = text;
-  while (t.length > 1 && g.measureText(`${t}…`).width > max) t = t.slice(0, -1);
-  return `${t}…`;
-}
-
-export async function exportImage(p) {
-  const canvas = drawSheet(p);
-  const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
-  if (!blob) return toast('Could not create image');
-  const file = new File([blob], `${fileBase(p)}.png`, { type: 'image/png' });
-  await shareOrDownload(file, p.name);
-}
-
-/** Printable page: a clean copy of the sheet, standings and bouts. */
-export function printPoule(p) {
-  const root = document.getElementById('print-root');
-  const n = p.fencers.length;
-  const st = stats(p);
-  const ranks = new Map(ranking(p).map((r) => [r.id, rankLabel(r)]));
-  const table = h(
-    'table',
-    { class: 'print-sheet' },
-    h(
-      'thead',
-      {},
-      h(
-        'tr',
-        {},
-        h('th', {}, '#'),
-        h('th', { class: 'l' }, 'Fencer'),
-        ...p.fencers.map((_, i) => h('th', {}, i + 1)),
-        ...['V', 'V/M', 'TS', 'TR', 'Ind', 'Rank'].map((t) => h('th', {}, t)),
-      ),
-    ),
-    h(
-      'tbody',
-      {},
-      ...p.fencers.map((f, r) => {
-        const s = st.get(f.id);
-        return h(
-          'tr',
-          {},
-          h('th', {}, r + 1),
-          h('td', { class: 'l' }, f.name, f.club && h('small', {}, ` ${f.club}`)),
-          ...p.fencers.map((o) =>
-            o.id === f.id
-              ? h('td', { class: 'diag' })
-              : h('td', { class: cellText(p, f.id, o.id).startsWith('V') ? 'v' : '' }, cellText(p, f.id, o.id)),
-          ),
-          h('td', {}, s.V),
-          h('td', {}, formatVM(s.VM)),
-          h('td', {}, s.TS),
-          h('td', {}, s.TR),
-          h('td', {}, s.Ind),
-          h('td', { class: 'rank' }, ranks.get(f.id)),
-        );
-      }),
-    ),
-  );
-  const bouts = h(
-    'ol',
-    { class: 'print-bouts' },
-    ...p.bouts.map((b) => {
-      const L = fencerById(p, b.leftId)?.name;
-      const R = fencerById(p, b.rightId)?.name;
-      const score = b.winnerId ? ` ${b.scoreL}–${b.scoreR}` : '';
-      return h('li', {}, `${L} v ${R}${score}`);
-    }),
-  );
-  fill(
-    root,
-    h('h1', {}, p.name),
-    h('p', {}, `${p.date} · ${WEAPON_LABEL[p.weapon]} · ${n} fencers`),
-    table,
-    h('h2', {}, 'Bout order'),
-    bouts,
-  );
-  window.print();
-}
+const teamFile = (m, ext) => `${slug(m.name)}-${m.date}.${ext}`;
+export const exportTeamCsv = (m) => downloadCsv(Team.toCsv(m), teamFile(m, 'csv'));
+export const exportTeamImage = (m) => shareReportImage(teamReport(m), teamFile(m, 'png'));
+export const printTeam = (m) => printReport(teamReport(m));

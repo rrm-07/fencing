@@ -1,6 +1,6 @@
 // Service worker: precache the whole app so it works fully offline.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'piste-v1.2.0';
+const VERSION = 'piste-v1.3.0';
 const ASSETS = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   './js/core/bout.js',
   './js/core/poule.js',
   './js/core/timer.js',
+  './js/core/team.js',
   './js/ui/boutView.js',
   './js/ui/device.js',
   './js/ui/dom.js',
@@ -22,6 +23,10 @@ const ASSETS = [
   './js/ui/exportPoule.js',
   './js/ui/pouleView.js',
   './js/ui/settings.js',
+  './js/ui/teamView.js',
+  './js/ui/report.js',
+  './js/ui/qr.js',
+  './js/vendor/qrcode.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -13,6 +13,7 @@ import {
   actionSheet,
   modal,
   promptText,
+  choiceDialog,
   sheetNav,
   group,
   row,
@@ -53,7 +54,8 @@ import {
 import { WEAPON_LABEL } from '../core/bout.js';
 import { openSettings } from './settings.js';
 import { exportCsv, exportImage, printPoule } from './exportPoule.js';
-import { sharingEnabled, sharePoule, joinByCode, syncStatus } from '../sync.js';
+import { sharingEnabled, sharePoule, joinByCode, syncStatus, deleteForEveryone, isOwner } from '../sync.js';
+import { qrSvg } from './qr.js';
 import { formatCode } from '../core/share.js';
 
 const WEAPON_TILE = { foil: 'blue', epee: 'purple', sabre: 'orange' };
@@ -257,7 +259,7 @@ export function mountPoulesView(root) {
         { id: 'open', label: p.status === 'finished' ? 'Open Sheet' : 'Resume', icon: 'chevronRight' },
         { id: 'rename', label: 'Rename', icon: 'pencil' },
         { id: 'dup', label: 'Duplicate', icon: 'copy' },
-        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
+        deleteAction(p),
       ],
     });
     if (choice === 'open') location.hash = `#poule/${p.id}`;
@@ -543,7 +545,10 @@ export function mountPoulesView(root) {
           title: p.name,
           large: true,
           left: backButton('Poules', () => (location.hash = '#poules'), 'All poules'),
-          right: [iconButton('ellipsis', () => sheetMenu(p), 'Poule actions')],
+          right: [
+            iconButton('share', () => shareFlow(p), p.share ? 'Show sharing code' : 'Share poule'),
+            iconButton('ellipsis', () => sheetMenu(p), 'Poule actions'),
+          ],
         }),
         body: [
           h('h1', { class: 'large-title' }, p.name),
@@ -561,7 +566,19 @@ export function mountPoulesView(root) {
               h('span', { style: { width: `${(pr.done / pr.total) * 100}%` } }),
             ),
           ),
-          p.share && group({}, shareRow(p)),
+          group(
+            {},
+            p.share
+              ? shareRow(p)
+              : row({
+                  lead: tile('link', 'blue'),
+                  title: 'Share with a Code',
+                  subtitle: 'Others enter results on their phones',
+                  chevron: true,
+                  onClick: () => shareFlow(p),
+                  cls: 'share-cta',
+                }),
+          ),
           nextCard,
           group(
             {
@@ -811,7 +828,7 @@ export function mountPoulesView(root) {
         { id: 'print', label: 'Print', icon: 'printer' },
         { id: 'rename', label: 'Rename', icon: 'pencil' },
         { id: 'dup', label: 'Duplicate', icon: 'copy' },
-        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
+        deleteAction(p),
       ],
     });
     if (choice === 'share') shareFlow(p);
@@ -832,24 +849,79 @@ export function mountPoulesView(root) {
       toast('Poule duplicated');
       location.hash = `#poule/${d.id}`;
     } else if (id === 'delete') {
-      const pr = progress(p);
+      await deleteFlow(p);
+    }
+  }
+
+  /** Delete label depends on who you are: only the organiser can delete a shared poule for everyone. */
+  function deleteAction(p) {
+    return p.share && !isOwner(p)
+      ? { id: 'delete', label: 'Remove from This Phone', icon: 'trash', tone: 'danger' }
+      : { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' };
+  }
+
+  async function deleteFlow(p) {
+    const pr = progress(p);
+    const done = (msg) => {
+      toast(msg);
+      if (route.view !== 'list') location.hash = '#poules';
+    };
+    if (!p.share) {
       const ok = await confirmDialog({
         title: `Delete “${p.name}”?`,
-        message: p.share
-          ? `This removes it from this phone only. Everyone else with code ${formatCode(p.share.code)} keeps it.`
-          : `${pr.done} of ${pr.total} bouts recorded. This can’t be undone.`,
+        message: `${pr.done} of ${pr.total} bouts recorded. This can’t be undone.`,
         confirm: 'Delete',
         danger: true,
       });
       if (ok) {
         deletePoule(p.id);
-        toast('Poule deleted');
-        if (route.view !== 'list') location.hash = '#poules';
+        done('Poule deleted');
+      }
+      return;
+    }
+    if (!isOwner(p)) {
+      const ok = await confirmDialog({
+        title: `Remove “${p.name}”?`,
+        message: `It’s only removed from this phone. The organiser and everyone else keep it, and you can rejoin with code ${formatCode(p.share.code)}.`,
+        confirm: 'Remove',
+        danger: true,
+      });
+      if (ok) {
+        deletePoule(p.id);
+        done('Removed from this phone');
+      }
+      return;
+    }
+    const choice = await choiceDialog({
+      title: `Delete “${p.name}”?`,
+      message: `You shared this poule (code ${formatCode(p.share.code)}). Delete it for everyone, or only remove it from this phone?`,
+      buttons: [
+        { id: 'everyone', label: 'Delete for Everyone', tone: 'danger', bold: true },
+        { id: 'local', label: 'Remove from This Phone' },
+      ],
+    });
+    if (choice === 'local') {
+      deletePoule(p.id);
+      done('Removed from this phone');
+    } else if (choice === 'everyone') {
+      const sure = await confirmDialog({
+        title: 'Delete for Everyone?',
+        message: `${pr.done} of ${pr.total} bouts recorded. It disappears from every phone that joined. This can’t be undone.`,
+        confirm: 'Delete',
+        danger: true,
+      });
+      if (!sure) return;
+      try {
+        await deleteForEveryone(p);
+        done('Deleted for everyone');
+      } catch (e) {
+        toast(e.message, { ms: 4000 });
       }
     }
   }
 
   subscribe((evt) => {
+    if (evt.type === 'remote-deleted') toast(`“${evt.name}” was deleted by the organiser`, { ms: 4000 });
     if (document.body.dataset.tab !== 'poules') return;
     if (evt.type === 'poules' || evt.type === 'roster' || evt.type === 'bout' || evt.type === 'sync') {
       // Don't rebuild the create form under the user's fingers.
@@ -926,9 +998,13 @@ export function mountPoulesView(root) {
         }),
         h(
           'div',
-          { class: 'share-hero' },
-          tile('link', 'blue'),
-          h('p', {}, 'Anyone with this code can enter and edit results. In Piste: Poules → Join.'),
+          { class: 'qr-wrap' },
+          qrSvg(link, { label: `QR code to join ${p.name}` }),
+          h(
+            'div',
+            { class: 'qr-caption' },
+            'Scan with the phone’s camera to join, or enter the code in Poules → Join.',
+          ),
         ),
         h('div', { class: 'share-code', 'aria-label': `Code ${code.split('').join(' ')}` }, formatCode(code)),
         h(

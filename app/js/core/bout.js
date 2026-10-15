@@ -20,9 +20,11 @@ export function uid(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}${seq.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function fencer(name, id = null) {
-  return { id, name, score: 0, cards: { yellow: 0, red: 0, black: false } };
+function fencer(name, id = null, score = 0, cards = null, team = null) {
+  return { id, name, team, score: score ?? 0, cards: { yellow: 0, red: 0, black: false, ...(cards ?? {}) } };
 }
+
+const lead = (L, R) => (L > R ? 'left' : R > L ? 'right' : null);
 
 /**
  * Create a fresh bout.
@@ -35,10 +37,14 @@ export function createBout(opts = {}) {
     id: opts.id ?? uid('bout'),
     weapon,
     target,
-    de: opts.de ?? target >= 10,
+    de: opts.de ?? (!opts.relay && target >= 10),
     showTimer: opts.showTimer ?? weapon !== 'sabre',
-    left: fencer(opts.leftName ?? 'Left', opts.leftId ?? null),
-    right: fencer(opts.rightName ?? 'Right', opts.rightId ?? null),
+    left: fencer(opts.leftName ?? 'Left', opts.leftId ?? null, opts.scoreL, opts.leftCards, opts.leftTeam),
+    right: fencer(opts.rightName ?? 'Right', opts.rightId ?? null, opts.scoreR, opts.rightCards, opts.rightTeam),
+    // Team relay legs start from the carried-over score; −1 never goes below it.
+    base: { left: opts.scoreL ?? 0, right: opts.scoreR ?? 0 },
+    relay: opts.relay ?? null, // { leg, legs, final }
+    teamRef: opts.teamRef ?? null, // { matchId, leg }
     timer: T.createTimer(BOUT_MS),
     period: 1,
     phase: 'fence', // 'fence' | 'break'
@@ -60,7 +66,7 @@ export function createBout(opts = {}) {
 export function isStarted(s) {
   return (
     s.history.length > 0 ||
-    s.left.score + s.right.score > 0 ||
+    s.left.score + s.right.score > (s.base?.left ?? 0) + (s.base?.right ?? 0) ||
     s.timer.running ||
     s.timer.remainingMs !== s.timer.presetMs
   );
@@ -146,6 +152,10 @@ function evaluate(s, now) {
   if (s.status !== 'active') return s;
   const L = s.left.score;
   const R = s.right.score;
+  // A relay leg ends as soon as either team reaches the leg's target (even level after a double).
+  if (s.relay && !s.relay.final) {
+    return Math.max(L, R) >= s.target ? finish(s, lead(L, R), 'target', now) : s;
+  }
   if ((L >= s.target || R >= s.target) && L !== R) {
     return finish(s, L > R ? 'left' : 'right', 'target', now);
   }
@@ -162,6 +172,7 @@ function evaluate(s, now) {
 export function doubleBlocked(s) {
   if (s.weapon !== 'epee') return 'Doubles only exist in épée';
   if (s.priorityMinute) return 'Doubles are annulled in the priority minute';
+  if (s.relay && !s.relay.final) return null;
   if (s.left.score === s.target - 1 && s.right.score === s.target - 1) {
     return `Double at ${s.target - 1}–${s.target - 1} is annulled`;
   }
@@ -173,7 +184,7 @@ function reduce(s, a, now) {
     case 'score': {
       if (s.status !== 'active') return s;
       const delta = a.delta ?? 1;
-      if (delta < 0 && s[a.side].score === 0) return s;
+      if (delta < 0 && s[a.side].score <= (s.base?.[a.side] ?? 0)) return s;
       return evaluate(addScore(s, a.side, delta), now);
     }
     case 'double': {
@@ -187,6 +198,7 @@ function reduce(s, a, now) {
         ...s,
         left: s.right,
         right: s.left,
+        base: s.base && { left: s.base.right, right: s.base.left },
         priority: s.priority && other(s.priority),
         winner: s.winner && other(s.winner),
       };
@@ -282,6 +294,8 @@ function timeExpired(s, now) {
     const winner = L === R ? s.priority : L > R ? 'left' : 'right';
     return finish(st, winner, 'priority', now);
   }
+  // Relay legs before the last end at time whatever the score.
+  if (s.relay && !s.relay.final) return finish(st, lead(L, R), 'time', now);
   if (s.de && s.period < 3) return { ...st, periodEnded: true };
   if (L === R) return { ...st, tiedAtTime: true };
   return finish(st, L > R ? 'left' : 'right', 'time', now);
@@ -329,7 +343,7 @@ export function describe(s, a) {
 
 /** "Alice wins 5–3" from the winner's point of view. */
 export function resultText(s) {
-  if (!s.winner) return '';
+  if (!s.winner) return s.status === 'active' ? '' : `Level ${s.left.score}–${s.right.score}`;
   const w = s[s.winner];
   const l = s[other(s.winner)];
   return `${w.name} wins ${w.score}–${l.score}`;
@@ -354,6 +368,7 @@ export function toRecord(s) {
     rightName: s.right.name,
     scoreL: s.left.score,
     scoreR: s.right.score,
+    base: s.base,
     cards: { left: s.left.cards, right: s.right.cards },
     winner: s.winner,
     winnerId: s.winner ? s[s.winner].id : null,

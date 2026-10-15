@@ -280,6 +280,17 @@ try {
       await page.getByRole('button', { name: 'Next bout' }).click();
       assert.match(await page.locator('.modal-wrap.open h2').textContent(), /Replace the bout in progress/);
       await dialogButton('Replace');
+    } else if (i === 1) {
+      // Pick the bout from the Bout tab instead: "I'm refereeing bout 2".
+      await tap('.format');
+      await page.waitForTimeout(450);
+      await page
+        .locator('.modal-wrap.open')
+        .getByRole('button', { name: /Choose Bout/ })
+        .click();
+      await page.waitForTimeout(450);
+      await shot('12a-choose-bout');
+      await page.locator('.modal-wrap.open [aria-label^="Bout 2:"]').click();
     } else await page.locator('.banner').getByRole('button', { name: 'Next bout' }).click();
     await page.waitForSelector('.bout');
     assert.equal(await page.locator('.side.left .name').textContent(), order[i][0]);
@@ -289,7 +300,7 @@ try {
     await touch('left', 5);
     await page.locator('.banner').getByRole('button', { name: 'Confirm result' }).click();
   }
-  log('7 bouts fenced via "Next bout": names prefilled, results written back');
+  log('7 bouts fenced via "Next bout" and "Choose Bout": names prefilled, results written back');
 
   // The other three entered manually on the sheet.
   await page.locator('.banner').getByRole('button', { name: 'Poule sheet' }).click();
@@ -329,7 +340,7 @@ try {
     page.locator('.next-card').getByRole('button', { name: 'CSV' }).click(),
   ]);
   const csv = await readFile(await csvDl.path(), 'utf8');
-  assert.match(csv, /^Tuesday club night,/);
+  assert.match(csv, /^\ufeff?Tuesday club night,/);
   assert.match(csv, /Bout,Left,Right,Score L,Score R,Winner/);
   const [imgDl] = await Promise.all([
     page.waitForEvent('download'),

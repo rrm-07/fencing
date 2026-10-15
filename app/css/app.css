@@ -630,6 +630,10 @@ p {
   font-weight: 500;
   color: var(--label-2);
 }
+.fmt-sub.accent {
+  color: var(--blue);
+  font-weight: 600;
+}
 .format .icon {
   width: 14px;
   height: 14px;
@@ -1687,6 +1691,96 @@ table.sheet {
   color: var(--label);
 }
 
+/* team matches */
+.team-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin: 0 10px;
+}
+.team-dot.red {
+  background: var(--red);
+}
+.team-dot.green {
+  background: var(--green);
+}
+.num-badge.muted {
+  color: var(--label-2);
+}
+.red-text {
+  color: var(--red-text);
+  font-weight: 600;
+}
+.green-text {
+  color: var(--green-text);
+  font-weight: 600;
+}
+.nc-label.live {
+  color: var(--orange);
+}
+.sb {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.sb-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 8px 10px;
+  border-radius: 16px;
+  min-width: 0;
+}
+.sb-team.red {
+  background: var(--red-tint);
+  color: var(--red-text);
+}
+.sb-team.green {
+  background: var(--green-tint);
+  color: var(--green-text);
+}
+.sb-name {
+  max-width: 100%;
+  font-weight: 700;
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-score {
+  font-family: var(--rounded);
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+.st-sub {
+  font-size: 13px;
+  color: var(--label-2);
+  margin-top: -4px;
+}
+.team-label {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lamp-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score.winner .team-label,
+.score.flash .team-label {
+  color: inherit;
+}
+
 /* sharing */
 .dot {
   flex: none;
@@ -1730,8 +1824,8 @@ table.sheet {
   letter-spacing: 0.06em;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  padding: 18px 0;
-  margin: 8px 0 16px;
+  padding: 12px 0;
+  margin: 0 0 14px;
   border-radius: 16px;
   background: var(--fill-4);
   user-select: all;
@@ -1897,6 +1991,28 @@ table.sheet {
 }
 .alert-btn + .alert-btn {
   border-left: 0.5px solid var(--sep);
+}
+.alert-actions.stacked .alert-btn + .alert-btn {
+  border-left: 0;
+  border-top: 0.5px solid var(--sep);
+}
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+.qr {
+  width: min(58vw, 220px);
+  height: auto;
+  border-radius: 14px;
+  background: #fff;
+}
+.qr-caption {
+  font-size: 13px;
+  color: var(--label-2);
+  text-align: center;
 }
 .alert-btn.bold {
   font-weight: 600;
@@ -2172,7 +2288,7 @@ body:has(.modal-wrap.open) #toast-root {
 }
 @media print {
   @page {
-    size: landscape;
+    size: A4 landscape;
     margin: 12mm;
   }
   html,
@@ -2187,40 +2303,102 @@ body:has(.modal-wrap.open) #toast-root {
   }
   #print-root {
     display: block;
-    font-family: -apple-system, system-ui, Arial, sans-serif;
-  }
-  #print-root h1 {
-    font-size: 22pt;
-  }
-  .print-sheet {
-    border-collapse: collapse;
-    margin: 12pt 0;
-    font-size: 12pt;
-  }
-  .print-sheet th,
-  .print-sheet td {
-    border: 1px solid #000;
-    min-width: 30pt;
-    height: 26pt;
-    text-align: center;
-    padding: 0 6pt;
-  }
-  .print-sheet .l {
-    text-align: left;
-    min-width: 140pt;
-  }
-  .print-sheet .diag {
-    background: #999 !important;
+    font-family: -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
-  .print-sheet .v,
-  .print-sheet .rank {
-    font-weight: 800;
+  #print-root h1 {
+    font-size: 22pt;
+    margin: 0;
   }
-  .print-bouts {
-    columns: 3;
-    font-size: 11pt;
+  #print-root .sub {
+    color: #6e6e73;
+    margin: 2pt 0 12pt;
+  }
+  #print-root .hero {
+    display: flex;
+    gap: 10pt;
+    margin-bottom: 6pt;
+  }
+  #print-root .hero div {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 8pt 14pt;
+    border-radius: 10pt;
+    background: #f2f2f7;
+    font-weight: 700;
+    font-size: 14pt;
+  }
+  #print-root .hero b {
+    font-size: 26pt;
+    color: #000;
+  }
+  #print-root .hero .red {
+    color: #d70015;
+  }
+  #print-root .hero .green {
+    color: #248a3d;
+  }
+  #print-root .note {
+    font-weight: 600;
+  }
+  #print-root section {
+    break-inside: avoid;
+    margin-top: 12pt;
+  }
+  #print-root h2 {
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6e6e73;
+    margin: 0 0 4pt;
+  }
+  #print-root table {
+    border-collapse: collapse;
+    font-size: 10.5pt;
+  }
+  #print-root th,
+  #print-root td {
+    border: 0.75pt solid #c7c7cc;
+    padding: 3pt 8pt;
+    min-width: 22pt;
+    height: 18pt;
+    text-align: center;
+  }
+  #print-root th {
+    background: #f2f2f7;
+    color: #6e6e73;
+    font-weight: 600;
+  }
+  #print-root .left {
+    text-align: left;
+  }
+  #print-root .b {
+    font-weight: 700;
+  }
+  #print-root .t-win,
+  #print-root .t-green {
+    color: #248a3d;
+  }
+  #print-root .t-loss,
+  #print-root .t-red {
+    color: #d70015;
+  }
+  #print-root .t-muted {
+    color: #6e6e73;
+  }
+  #print-root .f-diag {
+    background: #d1d1d6;
+  }
+  #print-root .f-gold {
+    background: #ffcc00;
+  }
+  #print-root .foot {
+    margin-top: 14pt;
+    font-size: 8pt;
+    color: #8e8e93;
   }
 }
 

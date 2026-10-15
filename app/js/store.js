@@ -5,11 +5,12 @@
 //   poules   Poule records (keyPath id)
 //   fencers  the reusable roster (keyPath id)
 //   bouts    finished free-standing bouts (keyPath id)
+//   matches  team matches (keyPath id)
 //   kv       settings and the in-progress bout ({ key, value })
 
 const DB_NAME = 'piste';
-const DB_VERSION = 1;
-const STORES = ['poules', 'fencers', 'bouts'];
+const DB_VERSION = 2;
+const STORES = ['poules', 'fencers', 'bouts', 'matches'];
 
 function idbOpen() {
   return new Promise((resolve, reject) => {
@@ -140,10 +141,11 @@ export const flush = () => chain;
 
 export async function exportAll() {
   await flush();
-  const [poules, fencers, bouts, kv] = await Promise.all([
+  const [poules, fencers, bouts, matches, kv] = await Promise.all([
     backend.getAll('poules'),
     backend.getAll('fencers'),
     backend.getAll('bouts'),
+    backend.getAll('matches'),
     backend.getAll('kv'),
   ]);
   return {
@@ -153,6 +155,7 @@ export async function exportAll() {
     poules,
     fencers,
     bouts,
+    matches,
     kv,
   };
 }

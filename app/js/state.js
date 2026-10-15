@@ -5,10 +5,12 @@ import * as store from './store.js';
 import { apply, createBout, toRecord, isStarted, uid } from './core/bout.js';
 import { recordResult, createPoule, fencerById } from './core/poule.js';
 import { changedBouts, withPending } from './core/share.js';
+import * as Team from './core/team.js';
 
 export const state = {
   bout: null,
   poules: new Map(),
+  matches: new Map(),
   roster: [],
   settings: { theme: 'dark', haptics: true },
 };
@@ -19,11 +21,12 @@ export const notify = (evt) => subs.forEach((fn) => fn(evt));
 
 export async function load() {
   await store.openStore();
-  const [bout, poules, roster, settings] = await Promise.all([
+  const [bout, poules, roster, settings, matches] = await Promise.all([
     store.kvGet('bout'),
     store.getAll('poules'),
     store.getAll('fencers'),
     store.kvGet('settings'),
+    store.getAll('matches'),
   ]);
   // The live bout is mirrored synchronously to localStorage so that the very
   // last tap survives even if the page is killed before IndexedDB commits.
@@ -31,6 +34,7 @@ export async function load() {
   const best = [bout, mirror].filter((b) => b && b.left && b.timer).sort((a, b) => (b.rev ?? 0) - (a.rev ?? 0))[0];
   state.bout = best ?? createBout({ leftName: 'Left', rightName: 'Right' });
   state.poules = new Map(poules.map((p) => [p.id, p]));
+  state.matches = new Map(matches.map((m) => [m.id, m]));
   state.roster = roster.sort((a, b) => a.name.localeCompare(b.name));
   state.settings = { ...state.settings, ...(settings ?? {}) };
 
@@ -42,6 +46,10 @@ export async function load() {
   if (pb && !pb.winnerId && (p.updatedAt ?? 0) < b.finishedAt) {
     savePoule(recordResult(p, pb.id, toRecord(b), b.finishedAt));
   }
+  // Same for a relay leg.
+  const m = b.status === 'confirmed' && b.teamRef && state.matches.get(b.teamRef.matchId);
+  const leg = m && m.legs.find((l) => l.n === b.teamRef.leg);
+  if (leg && !Team.legDone(leg) && (m.updatedAt ?? 0) < b.finishedAt) writeLeg(b);
 }
 
 /* ---------- bout ---------- */
@@ -89,8 +97,8 @@ export function newBout({ keepNames = true } = {}) {
   replaceBout(
     createBout({
       weapon: b.weapon,
-      target: b.target,
-      de: b.de,
+      target: b.relay ? 5 : b.target,
+      de: b.relay ? false : b.de,
       showTimer: b.showTimer,
       leftName: keepNames ? b.left.name : 'Left',
       rightName: keepNames ? b.right.name : 'Right',
@@ -106,6 +114,7 @@ export function confirmBout() {
   if (!dispatch({ type: 'confirm' })) return null;
   const b = state.bout;
   const rec = toRecord(b);
+  if (b.teamRef) return writeLeg(b);
   const ref = b.pouleRef;
   const poule = ref && state.poules.get(ref.pouleId);
   if (poule && poule.bouts.some((x) => x.id === ref.boutId)) {
@@ -115,6 +124,71 @@ export function confirmBout() {
   }
   store.put('bouts', { ...rec, pouleId: null });
   return null;
+}
+
+/* ---------- team matches ---------- */
+
+/** Write a confirmed relay leg back to its team match. Returns the match. */
+function writeLeg(b) {
+  const m = state.matches.get(b.teamRef.matchId);
+  if (!m) return null;
+  const sideOf = (team) => (b.left.id === team ? 'left' : 'right');
+  const [a, bb] = [sideOf('A'), sideOf('B')];
+  const decided = b.reason === 'black' || b.reason === 'priority' ? { winner: b[b.winner].id, reason: b.reason } : null;
+  const updated = Team.recordLeg(
+    m,
+    b.teamRef.leg,
+    {
+      touchesA: b[a].score - (b.base?.[a] ?? 0),
+      touchesB: b[bb].score - (b.base?.[bb] ?? 0),
+      reason: b.reason,
+      decided,
+      cards: { A: b[a].cards, B: b[bb].cards },
+      finishedAt: b.finishedAt,
+    },
+    Date.now(),
+  );
+  saveMatch(updated);
+  return updated;
+}
+
+/** Load a relay leg into the scorer, carrying on the score and team cards. */
+export function startTeamLeg(m, leg) {
+  const start = Team.legStart(m, leg.n);
+  const fa = Team.fencerById(m, leg.aId);
+  const fb = Team.fencerById(m, leg.bId);
+  replaceBout(
+    createBout({
+      weapon: m.weapon,
+      target: leg.target,
+      de: false,
+      leftName: fa?.name ?? 'Team A',
+      rightName: fb?.name ?? 'Team B',
+      leftId: 'A',
+      rightId: 'B',
+      leftTeam: m.teams.A.name,
+      rightTeam: m.teams.B.name,
+      scoreL: start.a,
+      scoreR: start.b,
+      leftCards: m.cards.A,
+      rightCards: m.cards.B,
+      relay: { leg: leg.n, legs: Team.LEGS, final: leg.n === Team.LEGS },
+      teamRef: { matchId: m.id, leg: leg.n },
+    }),
+  );
+}
+
+export function saveMatch(m) {
+  state.matches.set(m.id, m);
+  store.put('matches', m);
+  notify({ type: 'matches', id: m.id });
+}
+
+export function deleteMatch(id) {
+  state.matches.delete(id);
+  store.remove('matches', id);
+  if (state.bout.teamRef?.matchId === id) replaceBout({ ...state.bout, teamRef: null, relay: null });
+  notify({ type: 'matches', id });
 }
 
 /** Load a poule bout into the scorer. */
@@ -206,6 +280,7 @@ export async function importBackup(data) {
   const counts = await store.importAll(data);
   await load();
   notify({ type: 'poules' });
+  notify({ type: 'matches' });
   notify({ type: 'roster' });
   notify({ type: 'settings' });
   return counts;

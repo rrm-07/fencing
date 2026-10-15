@@ -17,7 +17,7 @@ import {
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
 
 const systemDark = () => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 

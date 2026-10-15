@@ -5,6 +5,7 @@
     "poules": {
       "$code": {
         ".read": "$code.matches(/^[A-HJKMNP-Z2-9]{6}$/)",
+        ".write": "data.exists() && !newData.exists() && newData.parent().parent().child('deletions').child($code).isString() && root.child('owners').child($code).child(newData.parent().parent().child('deletions').child($code).val()).exists()",
         "meta": {
           ".write": "!data.exists() && $code.matches(/^[A-HJKMNP-Z2-9]{6}$/)",
           ".validate": "newData.hasChildren(['id', 'name', 'fencers', 'bouts'])"
@@ -16,6 +17,20 @@
           }
         },
         "$other": { ".validate": false }
+      }
+    },
+    "owners": {
+      "$code": {
+        "$key": {
+          ".write": "!data.exists() && !root.child('poules').child($code).child('meta').exists() && $code.matches(/^[A-HJKMNP-Z2-9]{6}$/)",
+          ".validate": "newData.isBoolean() && $key.length >= 20 && $key.length <= 64"
+        }
+      }
+    },
+    "deletions": {
+      "$code": {
+        ".write": "root.child('owners').child($code).exists()",
+        ".validate": "newData.isString() && newData.val().length <= 64"
       }
     }
   }

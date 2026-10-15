@@ -3,7 +3,7 @@
 // from other phones stream in and are merged into the local copy. Anything
 // entered offline is kept as "pending" and sent when the connection returns.
 
-import { state, subscribe, savePoule, notify } from './state.js';
+import { state, subscribe, savePoule, deletePoule, notify } from './state.js';
 import { SHARE_DB_URL } from './config.js';
 import { makeCode, normalizeCode, metaOf, resultsOf, resultOf, applyRemote, pouleFromShare } from './core/share.js';
 
@@ -51,15 +51,28 @@ async function request(method, path, body) {
 
 const byCode = (code) => [...state.poules.values()].find((p) => p.share?.code === code);
 
+/** A random secret that proves this phone created the shared poule. */
+function ownerSecret() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(36).padStart(2, '0')).join('');
+}
+
 /** Share a local poule. Returns the new code. */
 export async function sharePoule(p) {
   if (p.share) return p.share.code;
   let code = null;
+  const ownerKey = ownerSecret();
   for (let attempt = 0; attempt < 6 && !code; attempt++) {
     const candidate = makeCode();
     try {
-      // The server only lets `meta` be written once, so a taken code is refused.
-      await request('PUT', `poules/${candidate}/meta`, metaOf(p));
+      // One atomic write: the poule, plus the owner key (which nobody can
+      // read back). The server only lets `meta` be written once, so a code
+      // that's already taken is refused.
+      await request('PATCH', '', {
+        [`poules/${candidate}/meta`]: metaOf(p),
+        [`owners/${candidate}/${ownerKey}`]: true,
+      });
       code = candidate;
     } catch (e) {
       if (e.status !== 401 && e.status !== 403) throw e;
@@ -69,9 +82,21 @@ export async function sharePoule(p) {
   const results = resultsOf(p);
   if (Object.keys(results).length) await request('PATCH', `poules/${code}/results`, results);
   const latest = state.poules.get(p.id) ?? p;
-  savePoule({ ...latest, share: { code, role: 'owner', pending: {} } }, { fromRemote: true });
+  savePoule({ ...latest, share: { code, role: 'owner', ownerKey, pending: {} } }, { fromRemote: true });
   return code;
 }
+
+/** Organiser only: delete the shared poule from the server (and so from every phone). */
+export async function deleteForEveryone(p) {
+  const { code, ownerKey } = p.share ?? {};
+  if (!ownerKey) throw new Error('Only the phone that shared this poule can delete it for everyone');
+  await request('PATCH', '', { [`poules/${code}`]: null, [`deletions/${code}`]: ownerKey });
+  streams.get(code)?.es.close();
+  streams.delete(code);
+  deletePoule(p.id);
+}
+
+export const isOwner = (p) => Boolean(p.share?.ownerKey);
 
 /** Join a shared poule by code (or pasted link). Returns the local poule. */
 export async function joinByCode(input) {
@@ -115,16 +140,32 @@ function onEvent(code, kind, e) {
   const p = byCode(code);
   if (!p || !msg) return;
   setStatus(code, 'live');
-  const path = String(msg.path ?? '/');
-  let result;
-  if (path === '/') result = applyRemote(p, msg.data ?? {}, { full: kind === 'put' });
-  else {
-    const boutId = path.split('/').filter(Boolean)[0];
-    if (path.split('/').filter(Boolean).length === 1) result = applyRemote(p, { [boutId]: msg.data }, {});
-    else return refetch(code); // a field-level change: fetch the whole bout
+  // The stream watches the whole poule: '/', '/meta…' or '/results…'.
+  const parts = String(msg.path ?? '/')
+    .split('/')
+    .filter(Boolean);
+  let result = null;
+  if (!parts.length) {
+    if (kind === 'put' && msg.data == null) return remoteDeleted(code);
+    if (kind === 'put') result = applyRemote(p, msg.data.results ?? {}, { full: true });
+    else if (msg.data?.results) result = applyRemote(p, msg.data.results, {});
+  } else if (parts[0] === 'results') {
+    if (parts.length === 1) result = applyRemote(p, msg.data ?? {}, { full: kind === 'put' });
+    else if (parts.length === 2) result = applyRemote(p, { [parts[1]]: msg.data }, {});
+    else return refetch(code); // a field-level change: fetch the results again
   }
-  if (result.changed) savePoule(result.poule, { fromRemote: true });
-  if (kind === 'put' && path === '/') flush(code);
+  if (result?.changed) savePoule(result.poule, { fromRemote: true });
+  if (kind === 'put' && !parts.length) flush(code);
+}
+
+/** The organiser deleted the poule for everyone: remove our copy too. */
+function remoteDeleted(code) {
+  const p = byCode(code);
+  if (!p) return;
+  streams.get(code)?.es.close();
+  streams.delete(code);
+  deletePoule(p.id);
+  notify({ type: 'remote-deleted', name: p.name });
 }
 
 async function refetch(code) {
@@ -141,7 +182,7 @@ async function refetch(code) {
 
 function open(code) {
   if (typeof EventSource === 'undefined') return;
-  const es = new EventSource(`${serverUrl()}/poules/${code}/results.json`);
+  const es = new EventSource(`${serverUrl()}/poules/${code}.json`);
   const entry = { es, status: 'connecting' };
   streams.set(code, entry);
   es.addEventListener('put', (e) => onEvent(code, 'put', e));
