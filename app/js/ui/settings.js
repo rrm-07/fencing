@@ -17,7 +17,7 @@ import {
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 
 const systemDark = () => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 
@@ -92,6 +92,15 @@ export function openSettings() {
               },
               'Vibration',
             ),
+          }),
+        ),
+        group(
+          { header: 'Club', footer: 'The booking page for weekly training. Share its link with your members.' },
+          row({
+            lead: tile('clock', 'teal'),
+            title: 'Training Bookings',
+            chevron: true,
+            onClick: () => (location.href = new URL('book/', location.href.split('#')[0]).href),
           }),
         ),
         group(

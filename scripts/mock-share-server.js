@@ -1,14 +1,21 @@
-// A tiny in-memory stand-in for the Firebase Realtime Database REST API, for
-// local development and the end-to-end tests: GET/PUT/PATCH/DELETE on
-// `/<path>.json`, EventSource streaming (put/patch events), CORS, and the
-// essentials of database.rules.json (meta is write-once, /poules can't be listed).
+// A small in-memory stand-in for the Firebase Realtime Database REST API, for
+// local development and the end-to-end tests:
+//   - GET / PUT / PATCH (multi-path, atomic) / DELETE on `/<path>.json`
+//   - EventSource streaming (put events), `orderBy="$key"&startAt=` queries
+//   - server timestamps ({ ".sv": "timestamp" }), CORS
+//   - the essentials of database.rules.json for shared poules and bookings
+//
 //   node scripts/mock-share-server.js     (PORT, default 9000)
 // Then in the browser console: localStorage.setItem('piste:shareDbUrl', 'http://localhost:9000')
+
 import { createServer } from 'node:http';
 
 const port = Number(process.env.PORT) || 9000;
 let tree = null;
 const listeners = new Set();
+
+const CODE = /^[A-HJKMNP-Z2-9]{6}$/;
+const SESSION = /^[0-9]{4}-[0-9]{2}-[0-9]{2}_[a-z0-9-]{1,40}$/;
 
 const split = (p) => p.split('/').filter(Boolean);
 function getAt(parts) {
@@ -27,18 +34,43 @@ function setAt(parts, value) {
   const last = parts[parts.length - 1];
   if (value === null || value === undefined) delete node[last];
   else node[last] = value;
+  prune(tree);
+}
+function prune(node) {
+  if (!node || typeof node !== 'object') return;
+  for (const [k, v] of Object.entries(node)) {
+    prune(v);
+    if (v && typeof v === 'object' && !Object.keys(v).length) delete node[k];
+  }
+}
+/** Replace { ".sv": "timestamp" } with the server time. */
+function serverValues(v, now) {
+  if (v && typeof v === 'object') {
+    if (v['.sv'] === 'timestamp') return now;
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, serverValues(x, now)]));
+  }
+  return v;
+}
+/** Apply an orderBy="$key"&startAt= query to an object. */
+function query(value, startAt) {
+  if (startAt == null || !value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([k]) => k >= startAt));
 }
 
 const send = (res, event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 const startsWith = (a, b) => b.every((k, i) => a[i] === k);
 
-function broadcast(parts, kind, body) {
+function broadcast(parts) {
   for (const l of listeners) {
     if (startsWith(parts, l.parts)) {
-      const rel = '/' + parts.slice(l.parts.length).join('/');
-      send(l.res, kind, { path: rel, data: kind === 'patch' ? body : getAt(parts) });
+      const rel = parts.slice(l.parts.length);
+      if (l.startAt != null && rel.length && rel[0] < l.startAt) continue;
+      send(l.res, 'put', {
+        path: '/' + rel.join('/'),
+        data: rel.length ? getAt(parts) : query(getAt(parts), l.startAt),
+      });
     } else if (startsWith(l.parts, parts)) {
-      send(l.res, 'put', { path: '/', data: getAt(l.parts) });
+      send(l.res, 'put', { path: '/', data: query(getAt(l.parts), l.startAt) });
     }
   }
 }
@@ -46,6 +78,82 @@ function broadcast(parts, kind, body) {
 function denied(res) {
   res.writeHead(401, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Permission denied' }));
+}
+
+/** Which paths can be read. */
+function readable(p) {
+  if (p[0] === 'poules') return p.length >= 2 && CODE.test(p[1]);
+  if (p[0] === 'booking') return ['sessions', 'closures', 'publicKey', 'privateKey'].includes(p[1]);
+  return false;
+}
+
+/** The essentials of database.rules.json. `upd` holds every path written by this request. */
+function allowed(p, v, upd) {
+  const fresh = (path) => upd.get(path) ?? getAt(split(path));
+  const [top, a, b, c] = p;
+
+  if (top === 'poules') {
+    if (!CODE.test(a ?? '')) return false;
+    if (p.length === 2) {
+      const secret = upd.get(`deletions/${a}`);
+      return v === null && getAt(p) !== null && typeof secret === 'string' && getAt(['owners', a, secret]) === true;
+    }
+    if (b === 'meta' && p.length === 3) return getAt(p) === null && v && v.id && v.fencers && v.bouts;
+    if (b === 'results' && p.length >= 4) {
+      if (getAt(['poules', a, 'meta']) === null) return false;
+      return (
+        v === null ||
+        p.length > 4 ||
+        (Number.isInteger(v.scoreL) && Number.isInteger(v.scoreR) && typeof v.winnerId === 'string')
+      );
+    }
+    return false;
+  }
+  if (top === 'owners' && p.length === 3) {
+    return CODE.test(a) && getAt(p) === null && getAt(['poules', a, 'meta']) === null && v === true && b.length >= 20;
+  }
+  if (top === 'deletions' && p.length === 2) return getAt(['owners', a]) !== null && typeof v === 'string';
+
+  if (top === 'booking') {
+    const isAdmin = (secret) => typeof secret === 'string' && getAt(['booking', 'admin', secret]) === true;
+    if (a === 'publicKey' || a === 'privateKey') return p.length === 2 && getAt(p) === null && v != null;
+    if (a === 'admin' && p.length === 3) return getAt(['booking', 'admin']) === null && b.length === 64 && v === true;
+    if (a === 'sessions' && p.length === 4) {
+      const [, , s, id] = p;
+      if (getAt(p) === null) {
+        if (v === null || !SESSION.test(s) || id.length > 40) return false;
+        const keys = Object.keys(v).sort().join(',');
+        return (
+          keys === 'createdAt,enc,name' &&
+          v.name.length >= 2 &&
+          v.name.length <= 60 &&
+          typeof v.enc === 'string' &&
+          Math.abs(v.createdAt - Date.now()) < 5000
+        );
+      }
+      if (v !== null) return false;
+      const key = upd.get(`booking/cancels/${s}/${id}`);
+      const selfCancel = typeof key === 'string' && getAt(['booking', 'keys', s, id, key]) === true;
+      return selfCancel || isAdmin(upd.get(`booking/adminOps/rm/${s}/${id}`));
+    }
+    if (a === 'keys' && p.length === 5)
+      return getAt(p) === null && getAt(['booking', 'sessions', b, c]) === null && p[4].length >= 20 && v === true;
+    if (a === 'cancels' && p.length === 4)
+      return getAt(['booking', 'sessions', b, c]) !== null && typeof v === 'string';
+    if (a === 'adminOps' && b === 'rm' && p.length === 5) return isAdmin(v);
+    if (a === 'adminOps' && b === 'close' && p.length === 5) return getAt(p) === null && isAdmin(v);
+    if (a === 'closures' && p.length === 4) {
+      return (
+        getAt(p) === null &&
+        v &&
+        typeof v.closed === 'boolean' &&
+        typeof fresh(`booking/adminOps/close/${b}/${c}`) === 'string' &&
+        upd.has(`booking/adminOps/close/${b}/${c}`)
+      );
+    }
+    return false;
+  }
+  return false;
 }
 
 const server = createServer(async (req, res) => {
@@ -56,30 +164,31 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (!url.pathname.endsWith('.json')) return res.writeHead(404).end();
   const parts = split(decodeURIComponent(url.pathname.slice(0, -5)));
-  const CODE = /^[A-HJKMNP-Z2-9]{6}$/;
+  const startAt = url.searchParams.has('startAt') ? JSON.parse(url.searchParams.get('startAt')) : null;
+
   if (req.method === 'GET') {
-    // Only a single poule can be read: no listing, no owner keys.
-    if (parts[0] !== 'poules' || parts.length < 2 || !CODE.test(parts[1])) return denied(res);
+    if (!readable(parts)) return denied(res);
     if ((req.headers.accept ?? '').includes('text/event-stream')) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
-      const l = { parts, res };
+      const l = { parts, res, startAt };
       listeners.add(l);
-      send(res, 'put', { path: '/', data: getAt(parts) });
+      send(res, 'put', { path: '/', data: query(getAt(parts), startAt) });
       const ka = setInterval(() => send(res, 'keep-alive', null), 15000);
       req.on('close', () => (listeners.delete(l), clearInterval(ka)));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(getAt(parts)));
+    return res.end(JSON.stringify(query(getAt(parts), startAt)));
   }
 
   let raw = '';
   for await (const chunk of req) raw += chunk;
-  const body = raw ? JSON.parse(raw) : null;
+  const now = Date.now();
+  const body = serverValues(raw ? JSON.parse(raw) : null, now);
   // Turn the request into a list of [path, value] writes (PATCH = multi-path).
   let writes;
   if (req.method === 'PUT') writes = [[parts, body]];
@@ -89,40 +198,9 @@ const server = createServer(async (req, res) => {
   const update = new Map(writes.map(([p, v]) => [p.join('/'), v]));
   if (!writes.every(([p, v]) => allowed(p, v, update))) return denied(res); // atomic, like Firebase
   for (const [p, v] of writes) setAt(p, v);
-  for (const [p, v] of writes) broadcast(p, 'put', v);
+  for (const [p] of writes) broadcast(p);
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(req.method === 'DELETE' ? null : body));
-
-  // The essentials of database.rules.json.
-  function allowed(p, v, upd) {
-    const [top, code, child, key] = p;
-    if (!CODE.test(code ?? '')) return false;
-    if (top === 'poules' && p.length === 2) {
-      const secret = upd.get(`deletions/${code}`);
-      return v === null && getAt(p) !== null && typeof secret === 'string' && getAt(['owners', code, secret]) === true;
-    }
-    if (top === 'poules' && child === 'meta' && p.length === 3)
-      return getAt(p) === null && v && v.id && v.fencers && v.bouts;
-    if (top === 'poules' && child === 'results' && p.length >= 4) {
-      if (getAt(['poules', code, 'meta']) === null) return false;
-      return (
-        v === null ||
-        p.length > 4 ||
-        (Number.isInteger(v.scoreL) && Number.isInteger(v.scoreR) && typeof v.winnerId === 'string')
-      );
-    }
-    if (top === 'owners' && p.length === 3) {
-      return (
-        getAt(p) === null &&
-        getAt(['poules', code, 'meta']) === null &&
-        v === true &&
-        child.length >= 20 &&
-        key === undefined
-      );
-    }
-    if (top === 'deletions' && p.length === 2) return getAt(['owners', code]) !== null && typeof v === 'string';
-    return false;
-  }
 });
 
 server.listen(port, () => console.log(`Mock sharing server on http://localhost:${port}`));

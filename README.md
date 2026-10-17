@@ -79,6 +79,25 @@ Sharing needs a small online database. Piste uses **Firebase Realtime Database**
 
 For local development there is a stand-in server: run `npm run mock-share`, then in the browser console `localStorage.setItem('piste:shareDbUrl', 'http://localhost:9000')` and reload.
 
+## Training bookings
+
+A separate page for booking weekly training: **`…/fencing/app/book/`** (also reachable from Piste → ⋯ → Settings → Training Bookings). Share that link with members.
+
+- **Timetable:** set in [`app/book/schedule.js`](app/book/schedule.js):
+  - Mon 7–9 pm, Central London FC (offsite, bring your own kit)
+  - Wed 11:30 am–1:30 pm, Mandela Studio, TeamUCL Gym
+  - Wed 7–9 pm, Central London FC
+  - Thu 3–5 pm, Mandela Studio
+  - Sat 10 am–1 pm, Mandela Studio
+
+  Bookings open two weeks ahead, in UK time (clock changes included).
+- **Places:** 30 per session. Anyone after that joins the waitlist, and when someone cancels, the first person waiting moves up automatically.
+- **Booking:** members enter their name and membership/student number. Names are visible to everyone with the link. The number is encrypted on the member's phone with the organiser's public key, so only the organiser can read it. Members cancel their own booking from the phone they booked on (a secret key kept there proves it's theirs); nobody can cancel anyone else's.
+- **Organiser:** tap the people icon (or open `…/book/#organiser`).
+  - The first time, choose a passphrase (at least 10 characters). It can't be recovered or changed, so keep it safe.
+  - Unlocking with it on any device shows membership numbers and lets you remove a booking (press and hold), cancel or reopen a session with a reason, and export a CSV register.
+- **Storage:** the same Firebase database as shared poules, under `booking/`. The rules in [`database.rules.json`](database.rules.json) enforce all of the above, so re-publish them after updating.
+
 ## How data is stored
 
 Everything stays on the device. There is no account, and nothing leaves the phone except poules you choose to share (see above).
@@ -102,11 +121,14 @@ app/                    the deployable site
   js/store.js           IndexedDB / localStorage persistence, backup
   js/sync.js            live sync of shared poules (Firebase REST + EventSource)
   js/config.js          sharing server URL
+  book/                 training booking page (schedule.js, core.js, crypto.js, api.js, book.js)
   js/state.js           app state and write-through saving
   js/ui/                screens: scorer, poules, settings, exports, dialogs
 tests/                  unit tests (node --test)
 e2e/run.js              Playwright walkthrough in a phone viewport
-e2e/share.js            two-phone sharing test against the mock server
+e2e/share.js            multi-phone sharing test against the mock server
+e2e/team.js             full team relay match
+e2e/book.js             booking page with organiser, members and the waitlist
 database.rules.json     Firebase security rules for shared poules
 scripts/                dev server, mock sharing server, icon generator
 ```

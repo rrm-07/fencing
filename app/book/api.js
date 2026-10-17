@@ -1,0 +1,114 @@
+// Booking data on the club's Firebase Realtime Database (REST + EventSource).
+//
+//   booking/publicKey, booking/privateKey   organiser keys (see crypto.js)
+//   booking/sessions/{date_id}/{bookingId}  { name, enc, createdAt }   public
+//   booking/closures/{date_id}/{id}         { closed, reason, at }     public
+//   booking/keys, cancels, admin, adminOps   proofs checked by the rules, never readable
+
+import { SHARE_DB_URL } from '../js/config.js';
+import { applyEvent } from './core.js';
+
+export function serverUrl() {
+  let url = SHARE_DB_URL;
+  try {
+    url = localStorage.getItem('piste:shareDbUrl') || url;
+  } catch {
+    /* storage blocked */
+  }
+  return String(url || '').replace(/\/+$/, '');
+}
+
+const SERVER_TIME = { '.sv': 'timestamp' };
+
+async function request(method, path, body) {
+  let res;
+  try {
+    res = await fetch(`${serverUrl()}/${path}.json`, {
+      method,
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout?.(15_000),
+    });
+  } catch {
+    throw new Error('No connection. Check your signal and try again.');
+  }
+  if (res.status === 401 || res.status === 403) throw new Error('Not allowed (permission denied)');
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  return res.json();
+}
+
+export const getKeys = async () => ({
+  publicKey: await request('GET', 'booking/publicKey'),
+  privateKey: await request('GET', 'booking/privateKey'),
+});
+
+/** First-time organiser setup (only works while no organiser exists). */
+export function setUp({ publicKey, privateKey, secret }) {
+  return request('PATCH', '', {
+    'booking/publicKey': publicKey,
+    'booking/privateKey': privateKey,
+    [`booking/admin/${secret}`]: true,
+  });
+}
+
+export function book(sessionKey, id, { name, enc }, key) {
+  return request('PATCH', '', {
+    [`booking/sessions/${sessionKey}/${id}`]: { name, enc, createdAt: SERVER_TIME },
+    [`booking/keys/${sessionKey}/${id}/${key}`]: true,
+  });
+}
+
+/** Cancel your own booking: prove it with the key kept on this phone. */
+export function cancel(sessionKey, id, key) {
+  return request('PATCH', '', {
+    [`booking/sessions/${sessionKey}/${id}`]: null,
+    [`booking/cancels/${sessionKey}/${id}`]: key,
+  });
+}
+
+/** Organiser: remove anyone's booking. */
+export function removeBooking(sessionKey, id, secret) {
+  return request('PATCH', '', {
+    [`booking/sessions/${sessionKey}/${id}`]: null,
+    [`booking/adminOps/rm/${sessionKey}/${id}`]: secret,
+  });
+}
+
+/** Organiser: cancel (closed = true) or reopen a session. */
+export function setClosed(sessionKey, closed, reason, secret) {
+  const cid = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return request('PATCH', '', {
+    [`booking/adminOps/close/${sessionKey}/${cid}`]: secret,
+    [`booking/closures/${sessionKey}/${cid}`]: { closed, reason: reason || '', at: SERVER_TIME },
+  });
+}
+
+/**
+ * Live view of a path (optionally from a key onwards). Calls onChange(tree)
+ * on every update and onStatus('live' | 'offline'). Returns a close function.
+ */
+export function watch(path, { startAt, onChange, onStatus }) {
+  let tree = {};
+  const q = startAt
+    ? `?orderBy=${encodeURIComponent('"$key"')}&startAt=${encodeURIComponent(JSON.stringify(startAt))}`
+    : '';
+  const es = new EventSource(`${serverUrl()}/${path}.json${q}`);
+  const handle = (kind) => (e) => {
+    let msg;
+    try {
+      msg = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    if (!msg) return;
+    tree = applyEvent(tree, kind, msg.path, msg.data);
+    onStatus?.('live');
+    onChange(tree);
+  };
+  es.addEventListener('put', handle('put'));
+  es.addEventListener('patch', handle('patch'));
+  es.addEventListener('open', () => onStatus?.('live'));
+  es.addEventListener('error', () => onStatus?.('offline'));
+  return () => es.close();
+}

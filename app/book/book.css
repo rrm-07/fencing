@@ -1,0 +1,136 @@
+/* Booking page: extends the app's design system (css/app.css). */
+
+body {
+  overflow: auto;
+}
+#book {
+  position: fixed;
+  inset: 0;
+}
+#book .page-body {
+  padding-bottom: calc(40px + var(--safe-bottom));
+}
+.week-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 8px 4px 12px;
+}
+.summary-line .dot {
+  display: inline-block;
+  vertical-align: 1px;
+  margin-right: 4px;
+}
+.time-lead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 46px;
+  line-height: 1.05;
+}
+.time-lead b {
+  font-family: var(--rounded);
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.time-lead small {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+.tint-orange {
+  color: var(--orange);
+}
+.tint-blue {
+  color: var(--blue);
+}
+.tint-gray {
+  color: var(--gray);
+}
+.badge-text {
+  color: var(--orange);
+  font-weight: 600;
+}
+.tag .icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+  margin-right: 3px;
+}
+.tag-green {
+  background: color-mix(in srgb, var(--green) 20%, transparent);
+  color: var(--green-text);
+}
+.tag-red {
+  background: color-mix(in srgb, var(--red) 18%, transparent);
+  color: var(--red-text);
+}
+.tag-gray {
+  background: var(--fill-3);
+  color: var(--label-2);
+}
+.session-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 4px 20px;
+}
+.sh-venue {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.sh-time {
+  font-size: 17px;
+  color: var(--label-2);
+}
+.sh-note {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--orange) 18%, transparent);
+  color: var(--orange);
+  font-weight: 600;
+  font-size: 15px;
+}
+.sh-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--label-2);
+}
+.sheet-status {
+  margin: 0 4px 14px;
+  font-size: 15px;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.sheet-status.warn {
+  color: var(--orange);
+  font-weight: 600;
+}
+.sheet-body > .btn-block {
+  margin-bottom: 24px;
+}
+.tone-danger-text {
+  color: var(--red);
+}
+.you {
+  color: var(--blue);
+  font-weight: 600;
+  font-size: 14px;
+}
+.org-on {
+  background: color-mix(in srgb, var(--green) 22%, transparent) !important;
+  color: var(--green) !important;
+}
+.center-foot {
+  text-align: center;
+  padding: 0 12px;
+}

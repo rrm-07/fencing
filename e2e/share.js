@@ -76,7 +76,7 @@ try {
   await org.page.locator('.share-cta').click();
   await dialogButton(org.page, 'Create Code');
   await org.page.waitForSelector('.share-code');
-  assert.ok(await org.page.locator('.modal-wrap.open svg.qr').isVisible(), 'QR code shown');
+  await org.page.waitForSelector('.modal-wrap.open svg.qr'); // QR code shown
   await org.page.waitForTimeout(500);
   const code = (await org.page.locator('.share-code').textContent()).trim();
   assert.match(code, /^[A-HJKMNP-Z2-9]{3}-[A-HJKMNP-Z2-9]{3}$/);
