@@ -191,3 +191,101 @@ const teamFile = (m, ext) => `${slug(m.name)}-${m.date}.${ext}`;
 export const exportTeamCsv = (m) => downloadCsv(Team.toCsv(m), teamFile(m, 'csv'));
 export const exportTeamImage = (m) => shareReportImage(teamReport(m), teamFile(m, 'png'));
 export const printTeam = (m) => printReport(teamReport(m));
+
+/* ---------- three-weapon fixtures ---------- */
+
+export function fixtureReport(ms) {
+  const r = Team.fixtureResult(ms);
+  const f = ms[0].fixture;
+  const A = ms[0].teams.A.name;
+  const B = ms[0].teams.B.name;
+  const by = r.scoring === 'touches' ? 'total touches' : 'weapons won';
+  const note = r.winner
+    ? `${r.winner === 'A' ? A : B} win on ${r.decidedBy === 'touches' ? 'total touches' : 'weapons'} · touches ${r.touchesA}–${r.touchesB}`
+    : `${r.finished} of ${ms.length} weapons fenced · touches ${r.touchesA}–${r.touchesB}`;
+  const tone = (k) => (k === 'A' ? 'red' : 'green');
+  return {
+    title: f.name,
+    subtitle: `${prettyDate(ms[0].date)} · Foil, épée and sabre · decided by ${by}`,
+    hero: {
+      left: { label: A, value: r.scoring === 'touches' ? r.touchesA : r.weaponsA },
+      right: { label: B, value: r.scoring === 'touches' ? r.touchesB : r.weaponsB },
+      note,
+    },
+    sections: [
+      {
+        title: 'Weapons',
+        columns: [
+          { label: 'Weapon', align: 'left', min: 90 },
+          { label: A, min: 70 },
+          { label: B, min: 70 },
+          { label: 'Result', align: 'left', min: 120 },
+        ],
+        rows: ms.map((m) => {
+          const s = Team.score(m);
+          const done = m.legs.filter(Team.legDone).length;
+          return [
+            { text: WEAPON_LABEL[m.weapon], bold: true },
+            { text: s.a, bold: m.winner === 'A' },
+            { text: s.b, bold: m.winner === 'B' },
+            m.winner
+              ? { text: `${m.teams[m.winner].name} won`, tone: tone(m.winner) }
+              : { text: done ? `Leg ${done} of ${Team.LEGS}` : 'Not started', tone: 'muted' },
+          ];
+        }),
+      },
+      {
+        title: 'Line-ups',
+        columns: [
+          { label: 'Weapon', align: 'left' },
+          { label: 'Team', align: 'left', min: 100 },
+          { label: '1 / 4', align: 'left' },
+          { label: '2 / 5', align: 'left' },
+          { label: '3 / 6', align: 'left' },
+          { label: 'Reserve', align: 'left' },
+        ],
+        rows: ms.flatMap((m) =>
+          ['A', 'B'].map((k) => {
+            const t = m.teams[k];
+            return [
+              k === 'A' ? { text: WEAPON_LABEL[m.weapon], bold: true } : '',
+              { text: t.name, tone: tone(k) },
+              ...t.fencers.map((x) => x.name),
+              t.reserve ? `${t.reserve.name}${t.subbed ? ' (on)' : ''}` : '–',
+            ];
+          }),
+        ),
+      },
+      {
+        title: 'Fencers',
+        columns: [
+          { label: 'Weapon', align: 'left' },
+          { label: 'Fencer', align: 'left', min: 120 },
+          { label: 'Legs' },
+          { label: 'Scored' },
+          { label: 'Received' },
+          { label: 'Ind' },
+        ],
+        rows: ms.flatMap((m) =>
+          Team.fencerStats(m)
+            .filter((s) => !s.reserve || s.legs > 0)
+            .map((s) => [
+              WEAPON_LABEL[m.weapon],
+              { text: s.name, bold: true, tone: tone(s.team) },
+              s.legs,
+              s.TS,
+              s.TR,
+              { text: signed(s.Ind), tone: s.Ind > 0 ? 'win' : s.Ind < 0 ? 'loss' : null, bold: true },
+            ]),
+        ),
+      },
+      // Every leg of every weapon on paper.
+      ...ms.map((m) => ({ ...teamReport(m).sections[1], title: `${WEAPON_LABEL[m.weapon]} legs`, printOnly: true })),
+    ],
+  };
+}
+
+const fixtureFile = (ms, ext) => `${slug(ms[0].fixture.name)}-${ms[0].date}.${ext}`;
+export const exportFixtureCsv = (ms) => downloadCsv(Team.fixtureCsv(ms), fixtureFile(ms, 'csv'));
+export const exportFixtureImage = (ms) => shareReportImage(fixtureReport(ms), fixtureFile(ms, 'png'));
+export const printFixture = (ms) => printReport(fixtureReport(ms));

@@ -25,7 +25,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 46px;
+  min-width: 54px;
   line-height: 1.05;
 }
 .time-lead b {
@@ -133,4 +133,68 @@ body {
 .center-foot {
   text-align: center;
   padding: 0 12px;
+}
+.badge-text.changed {
+  color: var(--blue);
+}
+.badge-text.lessons {
+  color: var(--indigo);
+}
+.tint-purple {
+  color: var(--purple);
+}
+
+/* organiser editor */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0;
+}
+.chip {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--fill-3);
+  color: var(--blue);
+  font-weight: 600;
+  font-size: 15px;
+}
+.row .inline-input {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--fill-3);
+  color: var(--blue);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.row .inline-input.num {
+  width: 72px;
+}
+.seg-row {
+  width: 100%;
+  padding: 10px 0;
+}
+.seg-row .segmented button {
+  padding: 0 2px;
+  font-size: 14px;
+}
+.lesson-edit .row-title {
+  display: flex;
+  min-width: 0;
+}
+.lesson-edit .slots-label {
+  margin-right: 6px;
+}
+.lesson-edit .icon-btn {
+  margin-left: 4px;
+}
+.lesson-edit .icon-btn .icon {
+  color: var(--red);
+}
+.badge-text.purple {
+  color: var(--purple);
 }

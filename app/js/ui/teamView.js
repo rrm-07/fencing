@@ -23,7 +23,14 @@ import { state, subscribe, saveMatch, deleteMatch, startTeamLeg, boutInProgress 
 import * as Team from '../core/team.js';
 import { WEAPON_LABEL } from '../core/bout.js';
 import { openSettings } from './settings.js';
-import { exportTeamCsv, exportTeamImage, printTeam } from './exportPoule.js';
+import {
+  exportTeamCsv,
+  exportTeamImage,
+  printTeam,
+  exportFixtureCsv,
+  exportFixtureImage,
+  printFixture,
+} from './exportPoule.js';
 
 const WEAPON_TILE = { foil: 'blue', epee: 'purple', sabre: 'orange' };
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -80,6 +87,13 @@ export function mountTeamsView(root) {
         return;
       }
       renderMatch(m);
+    } else if (route.view === 'fixture') {
+      const ms = Team.fixtureMatches(state.matches.values(), route.id);
+      if (!ms.length) {
+        location.hash = '#teams';
+        return;
+      }
+      renderFixture(ms);
     } else if (route.view === 'new') renderCreate();
     else renderList();
   }
@@ -108,10 +122,50 @@ export function mountTeamsView(root) {
     );
   }
 
+  function fixtureRow(ms) {
+    const r = Team.fixtureResult(ms);
+    const f = ms[0].fixture;
+    const A = ms[0].teams.A.name;
+    const B = ms[0].teams.B.name;
+    const touches = f.scoring === 'touches';
+    return h(
+      'div',
+      { class: 'poule-row' },
+      row({
+        lead: h('span', { class: 'tile tile-indigo fixture-tile' }, '3'),
+        title: f.name,
+        subtitle: r.winner
+          ? `${shortDate(ms[0].date)} · ${r.winner === 'A' ? A : B} ${r.complete ? 'won' : 'have won'}`
+          : `${shortDate(ms[0].date)} · ${r.finished ? `${r.finished} of 3 weapons done` : 'Foil, épée, sabre'}`,
+        detail: h(
+          'span',
+          { class: 'score-detail' },
+          touches ? `${r.touchesA}–${r.touchesB}` : `${r.weaponsA}–${r.weaponsB}`,
+        ),
+        chevron: true,
+        onClick: () => (location.hash = `#fixture/${f.id}`),
+        cls: 'match-open',
+      }),
+      iconButton('ellipsis', () => fixtureActions(ms), `Actions for ${f.name}`),
+    );
+  }
+
   function renderList() {
-    const all = [...state.matches.values()].sort((x, y) => y.date.localeCompare(x.date) || y.createdAt - x.createdAt);
-    const active = all.filter((m) => m.status !== 'finished');
-    const done = all.filter((m) => m.status === 'finished');
+    // Single matches, and three-weapon fixtures as one entry each.
+    const entries = [];
+    const seen = new Set();
+    for (const m of state.matches.values()) {
+      if (!m.fixture) entries.push({ m, date: m.date, at: m.createdAt, done: m.status === 'finished' });
+      else if (!seen.has(m.fixture.id)) {
+        seen.add(m.fixture.id);
+        const ms = Team.fixtureMatches(state.matches.values(), m.fixture.id);
+        entries.push({ ms, date: m.date, at: m.createdAt, done: Team.fixtureResult(ms).complete });
+      }
+    }
+    const all = entries.sort((x, y) => y.date.localeCompare(x.date) || y.at - x.at);
+    const rowOf = (e) => (e.ms ? fixtureRow(e.ms) : matchRow(e.m));
+    const active = all.filter((e) => !e.done);
+    const done = all.filter((e) => e.done);
     fill(
       root,
       page({
@@ -134,12 +188,12 @@ export function mountTeamsView(root) {
               h(
                 'p',
                 {},
-                'Relay matches of three against three: nine legs to 45, with the score carried from leg to leg.',
+                'Relay matches of three against three: nine legs to 45, with the score carried from leg to leg. Or a three-weapon fixture with a squad for each weapon.',
               ),
               button([icon('plus'), 'New Team Match'], () => (location.hash = '#teams/new'), 'btn-filled btn-large'),
             ),
-          active.length > 0 && group({ header: 'In Progress' }, ...active.map(matchRow)),
-          done.length > 0 && group({ header: 'Finished' }, ...done.map(matchRow)),
+          active.length > 0 && group({ header: 'In Progress' }, ...active.map(rowOf)),
+          done.length > 0 && group({ header: 'Finished' }, ...done.map(rowOf)),
         ],
       }),
     );
@@ -185,16 +239,67 @@ export function mountTeamsView(root) {
     } else if (id === 'sub') substituteFlow(m);
   }
 
+  async function fixtureActions(ms) {
+    const f = ms[0].fixture;
+    const choice = await actionSheet({
+      title: f.name,
+      subtitle: `${prettyDate(ms[0].date)} · Foil, épée and sabre`,
+      actions: [
+        { id: 'open', label: 'Open', icon: 'chevronRight' },
+        { id: 'rename', label: 'Rename', icon: 'pencil' },
+        { id: 'rematch', label: 'Rematch', icon: 'copy' },
+        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
+      ],
+    });
+    if (choice === 'open') location.hash = `#fixture/${f.id}`;
+    else if (choice) await fixtureAction(ms, choice);
+  }
+
+  async function fixtureAction(ms, id) {
+    const f = ms[0].fixture;
+    const now = Date.now();
+    if (id === 'rename') {
+      const name = await promptText({ title: 'Rename Fixture', value: f.name, maxLength: 60 });
+      if (!name) return;
+      for (const m of ms) {
+        const label = WEAPON_LABEL[m.weapon];
+        saveMatch({ ...m, name: `${name} · ${label}`, fixture: { ...m.fixture, name }, updatedAt: now });
+      }
+    } else if (id === 'rematch') {
+      const r = Team.rematchFixture(ms);
+      r.forEach(saveMatch);
+      toast('Rematch created');
+      location.hash = `#fixture/${r[0].fixture.id}`;
+    } else if (id === 'delete') {
+      const legs = ms.reduce((n, m) => n + m.legs.filter(Team.legDone).length, 0);
+      const ok = await confirmDialog({
+        title: `Delete “${f.name}”?`,
+        message: `All three weapons, ${legs} of ${Team.LEGS * ms.length} legs recorded. This can’t be undone.`,
+        confirm: 'Delete',
+        danger: true,
+      });
+      if (ok) {
+        ms.forEach((m) => deleteMatch(m.id));
+        toast('Fixture deleted');
+        if (route.view !== 'list') location.hash = '#teams';
+      }
+    }
+  }
+
   /* ---------- create ---------- */
 
   function renderCreate() {
+    const side = () => ({ name: '', fencers: ['', '', ''], reserve: '' });
     if (!draft)
       draft = {
         name: '',
         date: today(),
+        format: 'one',
+        scoring: 'weapons',
         weapon: state.bout.weapon ?? 'foil',
-        A: { name: '', fencers: ['', '', ''], reserve: '' },
-        B: { name: '', fencers: ['', '', ''], reserve: '' },
+        A: side(),
+        B: side(),
+        squads: Object.fromEntries(Team.FIXTURE_WEAPONS.map((w) => [w, { A: side(), B: side() }])),
       };
     const d = draft;
     const y = root.querySelector('.page-body')?.scrollTop ?? 0;
@@ -215,35 +320,54 @@ export function mountTeamsView(root) {
       });
       return el;
     };
-    const teamGroup = (k, color) => {
-      const t = d[k];
+    const teamName = (k) => d[k].name.trim() || `Team ${k === 'A' ? 1 : 2}`;
+    const teamGroup = (k, color, w = null) => {
+      const t = w ? d.squads[w][k] : d[k];
       const base = k === 'A' ? 0 : 3;
+      const aria = w ? `${WEAPON_LABEL[w]} team ${k}` : `Team ${k}`;
       return group(
-        { header: `Team ${k === 'A' ? 1 : 2} · ${color}` },
-        row({
-          lead: h('span', { class: `team-dot ${k === 'A' ? 'red' : 'green'}` }),
-          title: input(
-            t.name,
-            k === 'A' ? 'Team name, e.g. Ealing' : 'Team name, e.g. Salle Paul',
-            (v) => (t.name = v),
-            `Team ${k} name`,
-          ),
-          cls: 'row-inline',
-        }),
+        { header: w ? `${WEAPON_LABEL[w]} · ${teamName(k)}` : `Team ${k === 'A' ? 1 : 2} · ${color}` },
+        !w &&
+          row({
+            lead: h('span', { class: `team-dot ${k === 'A' ? 'red' : 'green'}` }),
+            title: input(
+              t.name,
+              k === 'A' ? 'Team name, e.g. Ealing' : 'Team name, e.g. Salle Paul',
+              (v) => (t.name = v),
+              `Team ${k} name`,
+            ),
+            cls: 'row-inline',
+          }),
         ...t.fencers.map((f, i) =>
           row({
-            lead: h('span', { class: 'num-badge' }, base + i + 1),
-            title: input(f, `Fencer ${base + i + 1}`, (v) => (t.fencers[i] = v), `Team ${k} fencer ${i + 1}`),
+            lead: h('span', { class: `num-badge ${w ? (k === 'A' ? 'red' : 'green') : ''}` }, base + i + 1),
+            title: input(f, `Fencer ${base + i + 1}`, (v) => (t.fencers[i] = v), `${aria} fencer ${i + 1}`),
             cls: 'row-inline',
           }),
         ),
         row({
           lead: h('span', { class: 'num-badge muted' }, 'R'),
-          title: input(t.reserve, 'Reserve (optional)', (v) => (t.reserve = v), `Team ${k} reserve`),
+          title: input(t.reserve, 'Reserve (optional)', (v) => (t.reserve = v), `${aria} reserve`),
           cls: 'row-inline',
         }),
       );
     };
+    const three = d.format === 'three';
+    const teamNames = group(
+      { header: 'Teams' },
+      ...['A', 'B'].map((k) =>
+        row({
+          lead: h('span', { class: `team-dot ${k === 'A' ? 'red' : 'green'}` }),
+          title: input(
+            d[k].name,
+            k === 'A' ? 'Team 1 name, e.g. UCL' : 'Team 2 name, e.g. KCL',
+            (v) => (d[k].name = v),
+            `Team ${k} name`,
+          ),
+          cls: 'row-inline',
+        }),
+      ),
+    );
     const nameIn = h('input', {
       class: 'input',
       value: d.name,
@@ -264,16 +388,57 @@ export function mountTeamsView(root) {
         body: [
           group({}, row({ title: nameIn, cls: 'row-inline' }), row({ title: 'Date', trailing: dateIn })),
           group(
-            { header: 'Weapon' },
+            {
+              header: 'Format',
+              footer: three
+                ? 'A relay at each weapon, each with its own three fencers and a reserve per team (9 + 3 per club).'
+                : null,
+            },
             segmented(
-              ['foil', 'epee', 'sabre'].map((w) => [w, WEAPON_LABEL[w]]),
-              d.weapon,
-              (w) => ((d.weapon = w), renderCreate()),
-              'Weapon',
+              [
+                ['one', 'One Weapon'],
+                ['three', 'All Three Weapons'],
+              ],
+              d.format,
+              (v) => ((d.format = v), renderCreate()),
+              'Format',
             ),
           ),
-          teamGroup('A', 'Red'),
-          teamGroup('B', 'Green'),
+          !three &&
+            group(
+              { header: 'Weapon' },
+              segmented(
+                ['foil', 'epee', 'sabre'].map((w) => [w, WEAPON_LABEL[w]]),
+                d.weapon,
+                (w) => ((d.weapon = w), renderCreate()),
+                'Weapon',
+              ),
+            ),
+          three &&
+            group(
+              {
+                header: 'Overall winner',
+                footer:
+                  d.scoring === 'weapons'
+                    ? 'The team that wins two of the three weapons wins the fixture. Total touches are shown too.'
+                    : 'Touches from all three weapons are added up; the higher total wins the fixture.',
+              },
+              segmented(
+                [
+                  ['weapons', 'Most Weapons Won'],
+                  ['touches', 'Total Touches'],
+                ],
+                d.scoring,
+                (v) => ((d.scoring = v), renderCreate()),
+                'Overall winner',
+              ),
+            ),
+          ...(three
+            ? [
+                teamNames,
+                ...Team.FIXTURE_WEAPONS.flatMap((w) => [teamGroup('A', 'Red', w), teamGroup('B', 'Green', w)]),
+              ]
+            : [teamGroup('A', 'Red'), teamGroup('B', 'Green')]),
           h(
             'p',
             { class: 'group-footer', style: { marginTop: '-18px', marginBottom: '24px' } },
@@ -287,15 +452,38 @@ export function mountTeamsView(root) {
     if (pb) pb.scrollTop = y;
     updateCreate();
 
+    function missing() {
+      const sides =
+        d.format === 'three' ? Team.FIXTURE_WEAPONS.flatMap((w) => ['A', 'B'].map((k) => d.squads[w][k])) : [d.A, d.B];
+      return sides.reduce((n, t) => n + t.fencers.filter((f) => !f.trim()).length, 0);
+    }
     function valid() {
-      return ['A', 'B'].every((k) => d[k].fencers.every((f) => f.trim()));
+      return missing() === 0;
     }
     function updateCreate() {
       createBtn.disabled = !valid();
-      createBtn.textContent = valid() ? 'Create Match · 9 Legs to 45' : 'Enter three fencers per team';
+      if (d.format === 'three') {
+        const n = missing();
+        createBtn.textContent = n ? `${n} fencer${n === 1 ? '' : 's'} still to enter` : 'Create Fixture · 3 Weapons';
+      } else createBtn.textContent = valid() ? 'Create Match · 9 Legs to 45' : 'Enter three fencers per team';
     }
     function create() {
       if (!valid()) return;
+      if (d.format === 'three') {
+        const ms = Team.createFixture({
+          name: d.name,
+          date: d.date,
+          teamA: d.A,
+          teamB: d.B,
+          squads: d.squads,
+          scoring: d.scoring,
+        });
+        ms.forEach(saveMatch);
+        draft = null;
+        haptics.tap();
+        location.hash = `#fixture/${ms[0].fixture.id}`;
+        return;
+      }
       const m = Team.createTeamMatch({
         name: d.name,
         date: d.date,
@@ -359,9 +547,13 @@ export function mountTeamsView(root) {
         nav: navbar({
           title: m.name,
           large: true,
-          left: button([icon('chevronLeft'), 'Teams'], () => (location.hash = '#teams'), 'nav-back', {
-            'aria-label': 'All team matches',
-          }),
+          left: m.fixture
+            ? button([icon('chevronLeft'), 'Fixture'], () => (location.hash = `#fixture/${m.fixture.id}`), 'nav-back', {
+                'aria-label': 'Back to the fixture',
+              })
+            : button([icon('chevronLeft'), 'Teams'], () => (location.hash = '#teams'), 'nav-back', {
+                'aria-label': 'All team matches',
+              }),
           right: [
             iconButton('share', () => exportTeamImage(m), 'Share results'),
             iconButton('ellipsis', () => matchMenu(m), 'Match actions'),
@@ -378,6 +570,17 @@ export function mountTeamsView(root) {
               `${prettyDate(m.date)} · ${WEAPON_LABEL[m.weapon]} · ${done} of ${Team.LEGS} legs`,
             ),
           ),
+          m.fixture &&
+            h(
+              'div',
+              { class: 'weapon-switch' },
+              segmented(
+                Team.fixtureMatches(state.matches.values(), m.fixture.id).map((x) => [x.id, WEAPON_LABEL[x.weapon]]),
+                m.id,
+                (id) => id !== m.id && (location.hash = `#team/${id}`),
+                'Weapon',
+              ),
+            ),
           h(
             'div',
             { class: 'next-card scoreboard' },
@@ -459,6 +662,125 @@ export function mountTeamsView(root) {
     );
   }
 
+  /* ---------- three-weapon fixture ---------- */
+
+  function renderFixture(ms) {
+    const r = Team.fixtureResult(ms);
+    const f = ms[0].fixture;
+    const A = ms[0].teams.A.name;
+    const B = ms[0].teams.B.name;
+    const touches = f.scoring === 'touches';
+    const cur = state.bout;
+    const winner = r.winner === 'A' ? A : B;
+    const status = r.winner
+      ? h(
+          'div',
+          { class: 'nc-winner' },
+          icon('trophy'),
+          r.complete
+            ? `${winner} win${r.decidedBy === 'touches' && !touches ? ' on total touches' : ''}`
+            : `${winner} have won the fixture`,
+        )
+      : h('div', { class: 'nc-deck' }, r.complete ? 'Level on total touches' : `${r.finished} of 3 weapons finished`);
+    fill(
+      root,
+      page({
+        nav: navbar({
+          title: f.name,
+          large: true,
+          left: button([icon('chevronLeft'), 'Teams'], () => (location.hash = '#teams'), 'nav-back', {
+            'aria-label': 'All team matches',
+          }),
+          right: [
+            iconButton('share', () => exportFixtureImage(ms), 'Share results'),
+            iconButton('ellipsis', () => fixtureActions(ms), 'Fixture actions'),
+          ],
+        }),
+        body: [
+          h('h1', { class: 'large-title' }, f.name),
+          h(
+            'div',
+            { class: 'summary' },
+            h(
+              'div',
+              { class: 'summary-line' },
+              `${prettyDate(ms[0].date)} · Three weapons · ${touches ? 'total touches' : 'most weapons'} wins`,
+            ),
+          ),
+          h(
+            'div',
+            { class: 'next-card scoreboard' },
+            h(
+              'div',
+              { class: 'sb' },
+              h(
+                'div',
+                { class: 'sb-team red' },
+                h('span', { class: 'sb-name' }, A),
+                h('span', { class: 'sb-score' }, touches ? r.touchesA : r.weaponsA),
+              ),
+              h(
+                'div',
+                { class: 'sb-team green' },
+                h('span', { class: 'sb-name' }, B),
+                h('span', { class: 'sb-score' }, touches ? r.touchesB : r.weaponsB),
+              ),
+            ),
+            h(
+              'div',
+              { class: 'sb-caption' },
+              touches
+                ? `Total touches · weapons ${r.weaponsA}–${r.weaponsB}`
+                : `Weapons won · touches ${r.touchesA}–${r.touchesB}`,
+            ),
+            h('div', { class: 'progress' }, h('span', { style: { width: `${(r.finished / ms.length) * 100}%` } })),
+            status,
+          ),
+          group(
+            { header: 'Weapons', footer: 'Each weapon is its own relay to 45 and can be fenced on its own piste.' },
+            ...ms.map((m) => {
+              const s = Team.score(m);
+              const done = m.legs.filter(Team.legDone).length;
+              const live = cur.teamRef?.matchId === m.id && cur.status !== 'confirmed';
+              return row({
+                lead: h('span', { class: `tile tile-${WEAPON_TILE[m.weapon]}` }, WEAPON_LABEL[m.weapon][0]),
+                title: WEAPON_LABEL[m.weapon],
+                subtitle:
+                  m.status === 'finished'
+                    ? `${m.teams[m.winner].name} won`
+                    : done
+                      ? `Leg ${done} of ${Team.LEGS}`
+                      : `${m.teams.A.fencers.map((x) => x.name).join(', ')} v ${m.teams.B.fencers.map((x) => x.name).join(', ')}`,
+                detail: h('span', { class: 'score-detail' }, `${s.a}–${s.b}`),
+                trailing: live ? h('span', { class: 'tag tag-live' }, 'Live') : null,
+                chevron: true,
+                onClick: () => (location.hash = `#team/${m.id}`),
+                cls: 'weapon-row',
+                attrs: { 'aria-label': `${WEAPON_LABEL[m.weapon]} ${s.a}–${s.b}` },
+              });
+            }),
+          ),
+          group(
+            { header: 'Export' },
+            row({
+              lead: tile('photo', 'indigo'),
+              title: 'Share Image',
+              chevron: true,
+              onClick: () => exportFixtureImage(ms),
+            }),
+            row({
+              lead: tile('doc', 'green'),
+              title: 'Export CSV',
+              chevron: true,
+              onClick: () => exportFixtureCsv(ms),
+            }),
+            row({ lead: tile('printer', 'gray'), title: 'Print', chevron: true, onClick: () => printFixture(ms) }),
+          ),
+        ],
+      }),
+    );
+  }
+
   async function matchMenu(m) {
     const canSub = ['A', 'B'].some((k) => m.teams[k].reserve && !m.teams[k].subbed);
     const choice = await actionSheet({
@@ -468,12 +790,17 @@ export function mountTeamsView(root) {
         { id: 'img', label: 'Share Image', icon: 'photo' },
         { id: 'csv', label: 'Export CSV', icon: 'doc' },
         { id: 'print', label: 'Print', icon: 'printer' },
-        { id: 'rename', label: 'Rename', icon: 'pencil' },
-        { id: 'rematch', label: 'Rematch', icon: 'copy' },
-        { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
+        ...(m.fixture
+          ? [{ id: 'fixture', label: 'Open Fixture', icon: 'chevronRight' }]
+          : [
+              { id: 'rename', label: 'Rename', icon: 'pencil' },
+              { id: 'rematch', label: 'Rematch', icon: 'copy' },
+              { id: 'delete', label: 'Delete', icon: 'trash', tone: 'danger' },
+            ]),
       ],
     });
-    if (choice === 'img') exportTeamImage(m);
+    if (choice === 'fixture') location.hash = `#fixture/${m.fixture.id}`;
+    else if (choice === 'img') exportTeamImage(m);
     else if (choice === 'csv') exportTeamCsv(m);
     else if (choice === 'print') printTeam(m);
     else if (choice) await matchAction(m, choice);

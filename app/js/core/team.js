@@ -231,3 +231,115 @@ export function toCsv(m) {
     rows.push(line([m.teams[s.team].name, s.name + (s.reserve ? ' (reserve)' : ''), s.legs, s.TS, s.TR, s.Ind]));
   return rows.join('\r\n') + '\r\n';
 }
+
+/* ---------- three-weapon fixtures ---------- */
+// A fixture is three team matches (foil, épée, sabre) between the same two
+// clubs, each with its own three fencers and reserve. The matches carry
+// `fixture: { id, name, scoring }`; the fixture itself is derived from them.
+
+export const FIXTURE_WEAPONS = ['foil', 'epee', 'sabre'];
+const WEAPON_NAME = { foil: 'Foil', epee: 'Épée', sabre: 'Sabre' };
+
+/**
+ * teamA / teamB: { name }. squads: { foil: { A: { fencers, reserve }, B: … }, epee: …, sabre: … }
+ * scoring: 'weapons' (most weapons won, then total touches) | 'touches' (total touches).
+ * Returns the three matches.
+ */
+export function createFixture({ name, date, teamA, teamB, squads, scoring = 'weapons', now = Date.now() }) {
+  const nameA = String(teamA?.name ?? '').trim() || 'Team A';
+  const nameB = String(teamB?.name ?? '').trim() || 'Team B';
+  const fixture = { id: uid('fix'), name: String(name ?? '').trim() || `${nameA} v ${nameB}`, scoring };
+  return FIXTURE_WEAPONS.map((w) => {
+    const sq = squads?.[w];
+    if (!sq) throw new Error(`Enter the ${WEAPON_NAME[w]} line-ups`);
+    const m = createTeamMatch({
+      name: `${fixture.name} · ${WEAPON_NAME[w]}`,
+      date,
+      weapon: w,
+      teamA: { ...sq.A, name: nameA },
+      teamB: { ...sq.B, name: nameB },
+      now,
+    });
+    return { ...m, fixture };
+  });
+}
+
+/** The matches of a fixture, in weapon order. */
+export function fixtureMatches(all, fixtureId) {
+  return [...all]
+    .filter((m) => m.fixture?.id === fixtureId)
+    .sort((a, b) => FIXTURE_WEAPONS.indexOf(a.weapon) - FIXTURE_WEAPONS.indexOf(b.weapon));
+}
+
+/**
+ * Overall result of a fixture's matches.
+ *   { weaponsA, weaponsB, touchesA, touchesB, finished (count), complete, winner: 'A'|'B'|null, decidedBy }
+ * With 'weapons' scoring the fixture is won as soon as one team has won more
+ * weapons than the other could still reach; with 'touches' only when all are fenced.
+ */
+export function fixtureResult(matches) {
+  const scoring = matches[0]?.fixture?.scoring ?? 'weapons';
+  let weaponsA = 0;
+  let weaponsB = 0;
+  let touchesA = 0;
+  let touchesB = 0;
+  let finished = 0;
+  for (const m of matches) {
+    const s = score(m);
+    touchesA += s.a;
+    touchesB += s.b;
+    if (m.status === 'finished') {
+      finished += 1;
+      if (m.winner === 'A') weaponsA += 1;
+      else if (m.winner === 'B') weaponsB += 1;
+    }
+  }
+  const left = matches.length - finished;
+  const complete = left === 0 && matches.length > 0;
+  let winner = null;
+  let decidedBy = null;
+  if (scoring === 'touches') {
+    if (complete && touchesA !== touchesB) [winner, decidedBy] = [touchesA > touchesB ? 'A' : 'B', 'touches'];
+  } else if (weaponsA > weaponsB + left) [winner, decidedBy] = ['A', 'weapons'];
+  else if (weaponsB > weaponsA + left) [winner, decidedBy] = ['B', 'weapons'];
+  else if (complete && touchesA !== touchesB) [winner, decidedBy] = [touchesA > touchesB ? 'A' : 'B', 'touches'];
+  return { scoring, weaponsA, weaponsB, touchesA, touchesB, finished, complete, winner, decidedBy };
+}
+
+/** A rematch of a whole fixture: same clubs and line-ups, fresh legs. */
+export function rematchFixture(matches, now = Date.now()) {
+  const f = matches[0].fixture;
+  const t = (x) => ({ fencers: x.fencers.map((p) => p.name), reserve: x.reserve?.name });
+  return createFixture({
+    name: f.name,
+    date: new Date(now).toISOString().slice(0, 10),
+    teamA: { name: matches[0].teams.A.name },
+    teamB: { name: matches[0].teams.B.name },
+    squads: Object.fromEntries(matches.map((m) => [m.weapon, { A: t(m.teams.A), B: t(m.teams.B) }])),
+    scoring: f.scoring,
+    now,
+  });
+}
+
+/** CSV for a whole fixture: the overall result, then each weapon's match. */
+export function fixtureCsv(matches) {
+  const r = fixtureResult(matches);
+  const A = matches[0].teams.A.name;
+  const B = matches[0].teams.B.name;
+  const rows = [
+    line(['Team fixture', matches[0].fixture.name]),
+    line(['Date', matches[0].date]),
+    line(['Decided by', r.scoring === 'touches' ? 'Total touches' : 'Weapons won, then total touches']),
+    line(['Weapons won', `${A} ${r.weaponsA}–${r.weaponsB} ${B}`]),
+    line(['Total touches', `${A} ${r.touchesA}–${r.touchesB} ${B}`]),
+    line(['Winner', r.winner ? (r.winner === 'A' ? A : B) : '']),
+    '',
+    line(['Weapon', `${A} score`, `${B} score`, 'Winner']),
+    ...matches.map((m) => {
+      const s = score(m);
+      return line([WEAPON_NAME[m.weapon], s.a, s.b, m.winner ? m.teams[m.winner].name : '']);
+    }),
+  ];
+  for (const m of matches) rows.push('', '', line([`${WEAPON_NAME[m.weapon]}`]), toCsv(m).trimEnd());
+  return rows.join('\r\n') + '\r\n';
+}

@@ -1707,6 +1707,34 @@ table.sheet {
 .num-badge.muted {
   color: var(--label-2);
 }
+.num-badge.red {
+  background: var(--red-tint);
+  color: var(--red-text);
+}
+.num-badge.green {
+  background: var(--green-tint);
+  color: var(--green-text);
+}
+/* three-weapon fixtures */
+.fixture-tile {
+  font-family: var(--rounded);
+  font-size: 17px;
+}
+.sb-caption {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label-2);
+}
+.weapon-switch {
+  margin: 0 0 18px;
+}
+.weapon-row .row-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .red-text {
   color: var(--red-text);
   font-weight: 600;

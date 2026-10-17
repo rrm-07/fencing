@@ -41,7 +41,10 @@ async function boot() {
       tab = 'poules';
       sub = { view: 'new' };
     } else if (hash.startsWith('poules')) tab = 'poules';
-    else if (hash.startsWith('team/')) {
+    else if (hash.startsWith('fixture/')) {
+      tab = 'teams';
+      sub = { view: 'fixture', id: decodeURIComponent(hash.slice(8)) };
+    } else if (hash.startsWith('team/')) {
       tab = 'teams';
       sub = { view: 'match', id: decodeURIComponent(hash.slice(5)) };
     } else if (hash === 'teams/new') {

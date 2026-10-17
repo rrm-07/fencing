@@ -2,7 +2,7 @@
 // and who is waitlisted, input checks, and applying live updates. Pure
 // functions (no DOM, no network), unit-tested.
 
-import { CAPACITY, SCHEDULE, VENUES, WEEKS_AHEAD, CLUB } from './schedule.js';
+import { CAPACITY, DEFAULT_WEEKLY, WEEKS_AHEAD, EVENT_WEEKS, OFFSITE_NOTE, CLUB } from './schedule.js';
 
 const DAY = 86_400_000;
 
@@ -44,23 +44,103 @@ const weekday = (date) => new Date(`${date}T12:00:00Z`).getUTCDay();
 export const sessionKey = (date, id) => `${date}_${id}`;
 
 /**
- * Sessions from today for `weeks` weeks that haven't finished yet.
- * Each: { key, date, id, day, venue, start, end, startMs, endMs, week }
+ * The timetable from the organiser's config in the database, or the
+ * defaults until an organiser has edited it.
+ *   config = { meta: { main: { seeded } }, weekly: { id: … }, events: { id: … }, overrides: { key: … } }
  */
-export function upcomingSessions(now = Date.now(), { weeks = WEEKS_AHEAD, schedule = SCHEDULE } = {}) {
+export function timetable(config) {
+  const seeded = Boolean(config?.meta?.main?.seeded);
+  const live = (obj) =>
+    Object.entries(obj ?? {})
+      .filter(([, x]) => x && !x.deleted)
+      .map(([id, x]) => ({ ...x, id }));
+  return {
+    seeded,
+    weekly: seeded ? live(config.weekly) : DEFAULT_WEEKLY.map((w) => ({ ...w })),
+    events: live(config?.events),
+    overrides: config?.overrides ?? {},
+  };
+}
+
+/** Fields an override can change for one date. */
+const OVERRIDABLE = ['title', 'start', 'end', 'capacity', 'offsite', 'note', 'lessons'];
+
+/** Coach lesson lists for a session: [{ id, coach, slots }] in a stable order. */
+export function lessonsOf(x) {
+  return Object.entries(x?.lessons ?? {})
+    .filter(([, l]) => l && typeof l.coach === 'string' && l.coach.trim())
+    .map(([id, l]) => ({ id, coach: l.coach.trim(), slots: Number.isInteger(l.slots) && l.slots > 0 ? l.slots : 1 }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** A new id for a coach's lesson list. */
+export const newLessonId = (rand = Math.random) =>
+  `l${Date.now().toString(36)}${Math.floor(rand() * 1e6).toString(36)}`;
+
+function makeSession(base, date, kind, overrides, today) {
+  const ov = overrides[sessionKey(date, base.id)];
+  const changed =
+    ov && !ov.cleared ? Object.fromEntries(OVERRIDABLE.filter((k) => ov[k] != null).map((k) => [k, ov[k]])) : {};
+  const s = { capacity: CAPACITY, offsite: false, note: '', ...base, ...changed };
+  return {
+    ...s,
+    lessons: lessonsOf(s),
+    kind,
+    sourceId: base.id,
+    key: sessionKey(date, base.id),
+    date,
+    changed: Object.keys(changed).length > 0,
+    startMs: zonedTime(date, s.start),
+    endMs: zonedTime(date, s.end),
+    week: weekOf(today, date),
+  };
+}
+
+/**
+ * Sessions that haven't finished yet: weekly ones for `weeks` weeks, one-off
+ * ones up to EVENT_WEEKS ahead. Each: { key, kind, sourceId, date, title,
+ * start, end, capacity, offsite, note, changed, startMs, endMs, week }
+ */
+export function upcomingSessions(now = Date.now(), { weeks = WEEKS_AHEAD, config = null } = {}) {
+  const t = timetable(config);
   const today = zonedDate(now);
   const out = [];
   for (let i = 0; i < weeks * 7; i++) {
     const date = addDays(today, i);
-    for (const s of schedule) {
-      if (s.day !== weekday(date)) continue;
-      const startMs = zonedTime(date, s.start);
-      const endMs = zonedTime(date, s.end);
-      if (endMs <= now) continue;
-      out.push({ ...s, key: sessionKey(date, s.id), date, startMs, endMs, week: weekOf(today, date) });
-    }
+    for (const w of t.weekly) if (w.day === weekday(date)) out.push(makeSession(w, date, 'weekly', t.overrides, today));
   }
-  return out.sort((a, b) => a.startMs - b.startMs);
+  const last = addDays(today, EVENT_WEEKS * 7);
+  for (const e of t.events)
+    if (e.date >= today && e.date < last) out.push(makeSession(e, e.date, 'event', t.overrides, today));
+  return out.filter((s) => s.endMs > now).sort((a, b) => a.startMs - b.startMs || a.title.localeCompare(b.title));
+}
+
+/** Check a session from the editor. Returns an error message or null. */
+export function validateSession(x, { kind, today } = {}) {
+  const title = cleanName(x.title);
+  if (title.length < 2 || title.length > 60) return 'Enter a venue or title (2–60 characters)';
+  const time = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+  if (!time.test(x.start ?? '') || !time.test(x.end ?? '')) return 'Enter a start and end time';
+  if (x.end <= x.start) return 'The session must end after it starts';
+  if (!Number.isInteger(x.capacity) || x.capacity < 1 || x.capacity > 500) return 'Places must be between 1 and 500';
+  if (String(x.note ?? '').length > 80) return 'Keep the note under 80 characters';
+  for (const l of x.lessons ?? []) {
+    if (cleanName(l.coach).length < 2 || cleanName(l.coach).length > 40) return 'Enter each coach’s name';
+    if (!Number.isInteger(l.slots) || l.slots < 1 || l.slots > 30) return 'Lesson slots must be between 1 and 30';
+  }
+  if (kind === 'weekly' && !(Number.isInteger(x.day) && x.day >= 0 && x.day <= 6)) return 'Choose a day';
+  if (kind === 'event') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date ?? '')) return 'Choose a date';
+    if (today && x.date < today) return 'That date has passed';
+  }
+  return null;
+}
+
+/** A new id for a weekly ('w-…') or one-off ('e-…') session. */
+export function newSessionId(kind, rand = Math.random) {
+  let r = '';
+  for (let i = 0; i < 8; i++) r += Math.floor(rand() * 36).toString(36);
+  return `${kind === 'weekly' ? 'w' : 'e'}-${r}`;
 }
 
 /** 0 = this week (Mon–Sun), 1 = next week, … */
@@ -146,8 +226,16 @@ export function newId(rand = Math.random) {
   return `b${Date.now().toString(36)}${r}`;
 }
 
+/** How a session is presented: { name, short, color, badge, note } */
 export function venueOf(s) {
-  return VENUES[s.venue] ?? { name: s.venue, short: s.venue, color: 'gray' };
+  const name = s.title ?? '';
+  return {
+    name,
+    short: name.split(',')[0].trim() || name,
+    color: s.offsite ? 'orange' : s.kind === 'event' ? 'purple' : 'blue',
+    badge: s.offsite ? 'Offsite' : s.kind === 'event' ? 'One-off' : null,
+    note: [s.offsite && OFFSITE_NOTE, s.note].filter(Boolean).join(' · '),
+  };
 }
 
 const csvCell = (v) => {

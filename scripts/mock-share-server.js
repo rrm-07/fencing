@@ -83,7 +83,8 @@ function denied(res) {
 /** Which paths can be read. */
 function readable(p) {
   if (p[0] === 'poules') return p.length >= 2 && CODE.test(p[1]);
-  if (p[0] === 'booking') return ['sessions', 'closures', 'publicKey', 'privateKey'].includes(p[1]);
+  if (p[0] === 'booking')
+    return ['sessions', 'closures', 'publicKey', 'privateKey', 'config', 'lessons'].includes(p[1]);
   return false;
 }
 
@@ -136,12 +137,55 @@ function allowed(p, v, upd) {
       const selfCancel = typeof key === 'string' && getAt(['booking', 'keys', s, id, key]) === true;
       return selfCancel || isAdmin(upd.get(`booking/adminOps/rm/${s}/${id}`));
     }
+    if (a === 'lessons' && p.length === 5) {
+      const [, , s2, coach, id] = p;
+      if (getAt(p) === null) {
+        if (v === null || !SESSION.test(s2) || coach.length > 40 || id.length > 40) return false;
+        return (
+          Object.keys(v).sort().join(',') === 'createdAt,name' &&
+          v.name.length >= 2 &&
+          v.name.length <= 60 &&
+          Math.abs(v.createdAt - Date.now()) < 5000
+        );
+      }
+      if (v !== null) return false;
+      const key = upd.get(`booking/lessonCancels/${s2}/${coach}/${id}`);
+      return (
+        (typeof key === 'string' && getAt(['booking', 'lessonKeys', s2, coach, id, key]) === true) ||
+        isAdmin(upd.get(`booking/adminOps/rmLesson/${s2}/${coach}/${id}`))
+      );
+    }
+    if (a === 'lessonKeys' && p.length === 6)
+      return getAt(p) === null && getAt(['booking', 'lessons', b, c, p[4]]) === null && p[5].length >= 20 && v === true;
+    if (a === 'lessonCancels' && p.length === 5)
+      return getAt(['booking', 'lessons', b, c, p[4]]) !== null && typeof v === 'string';
+    if (a === 'adminOps' && b === 'rmLesson' && p.length === 6) return isAdmin(v);
     if (a === 'keys' && p.length === 5)
       return getAt(p) === null && getAt(['booking', 'sessions', b, c]) === null && p[4].length >= 20 && v === true;
     if (a === 'cancels' && p.length === 4)
       return getAt(['booking', 'sessions', b, c]) !== null && typeof v === 'string';
     if (a === 'adminOps' && b === 'rm' && p.length === 5) return isAdmin(v);
     if (a === 'adminOps' && b === 'close' && p.length === 5) return getAt(p) === null && isAdmin(v);
+    if (a === 'adminOps' && b === 'cfg' && p.length === 4) return getAt(p) === null && isAdmin(v);
+    if (a === 'config' && p.length === 4) {
+      // Timetable entries: each carries a one-time op written with the organiser secret in the same request.
+      const op = v?.op;
+      const okKind = ['weekly', 'events', 'overrides', 'meta'].includes(b);
+      const time = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+      const fields =
+        (v?.title == null || (typeof v.title === 'string' && v.title.length >= 2 && v.title.length <= 60)) &&
+        (v?.start == null || time.test(v.start)) &&
+        (v?.end == null || time.test(v.end)) &&
+        (v?.capacity == null || (Number.isInteger(v.capacity) && v.capacity >= 1 && v.capacity <= 500)) &&
+        ((b !== 'weekly' && b !== 'events') || /^[a-z0-9-]{1,40}$/.test(c));
+      return (
+        okKind &&
+        fields &&
+        typeof op === 'string' &&
+        getAt(['booking', 'adminOps', 'cfg', op]) === null &&
+        upd.has(`booking/adminOps/cfg/${op}`)
+      );
+    }
     if (a === 'closures' && p.length === 4) {
       return (
         getAt(p) === null &&

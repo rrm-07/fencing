@@ -180,6 +180,77 @@ try {
   assert.match(await page.locator('.match-open').first().textContent(), /Ealing won/);
   log('match listed under Finished');
 
+  // Three-weapon fixture: 3 + reserve per weapon per team.
+  await page.getByRole('button', { name: 'New team match', exact: true }).click();
+  await page.locator('[aria-label="Format"]').getByRole('button', { name: 'All Three Weapons' }).click();
+  await fill('Team A name', 'UCL');
+  await fill('Team B name', 'KCL');
+  const W = { Foil: 'F', Épée: 'E', Sabre: 'S' };
+  for (const [w, c] of Object.entries(W)) {
+    for (const i of [1, 2, 3]) {
+      await fill(`${w} team A fencer ${i}`, `U${c}${i}`);
+      await fill(`${w} team B fencer ${i}`, `K${c}${i}`);
+    }
+    await fill(`${w} team A reserve`, `U${c}R`);
+  }
+  await shot('t8-fixture-form');
+  await page.getByRole('button', { name: /Create Fixture · 3 Weapons/ }).click();
+  await page.waitForSelector('.weapon-row');
+  assert.equal(await page.locator('.weapon-row').count(), 3);
+  log('three-weapon fixture created: UCL v KCL, 9 fencers + 3 reserves each');
+
+  // Win foil and épée by entering leg 1 by hand (to 45 for the test).
+  async function winWeapon(w, a) {
+    await page.locator(`.weapon-row[aria-label^="${w} "]`).click();
+    await page.waitForSelector('.weapon-switch');
+    await page.locator('.leg-row').first().click();
+    for (let i = 0; i < 45; i++)
+      await page
+        .locator('.modal-wrap.open')
+        .getByRole('button', { name: `${a} plus one` })
+        .click();
+    await dlg('Save');
+    await page.waitForSelector('.nc-winner');
+  }
+  await winWeapon('Foil', 'UF3');
+  // Switch weapon from the match page.
+  await page.locator('.weapon-switch').getByRole('button', { name: 'Épée' }).click();
+  await page.waitForFunction(() => /Épée/.test(document.querySelector('.summary-line')?.textContent));
+  await page.locator('[aria-label="Back to the fixture"]').click();
+  await winWeapon('Épée', 'UE3');
+  await page.locator('[aria-label="Back to the fixture"]').click();
+  await page.waitForSelector('.weapon-row');
+  assert.match(await page.locator('.nc-winner').textContent(), /UCL have won the fixture/);
+  assert.deepEqual(await page.locator('.sb-score').allTextContents(), ['2', '0']);
+  assert.match(await page.locator('.sb-caption').textContent(), /touches 90–0/);
+  await shot('t9-fixture');
+  log('UCL won foil and épée: fixture won 2–0 on weapons (touches 90–0)');
+
+  const [fxCsv] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Export CSV' }).click(),
+  ]);
+  const fcsv = await readFile(await fxCsv.path(), 'utf8');
+  assert.match(fcsv, /Weapons won,UCL 2–0 KCL/);
+  assert.match(fcsv, /Sabre,0,0,/);
+  assert.match(fcsv, /US1/);
+  const [fxImg] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Share Image' }).click(),
+  ]);
+  await fxImg.saveAs(`${shots}t10-fixture-export.png`);
+  log(`fixture exported: ${fxCsv.suggestedFilename()}`);
+
+  await page.locator('[aria-label="All team matches"]').click();
+  await page.waitForSelector('.fixture-tile');
+  assert.match(await page.locator('.match-open').first().textContent(), /UCL have won/);
+  await page.locator('[aria-label="Actions for UCL v KCL"]').click();
+  await dlg('Delete');
+  await dlg('Delete');
+  await page.waitForFunction(() => !document.querySelector('.fixture-tile'));
+  assert.equal(await page.evaluate(() => window.__piste.state.matches.size), 1);
+  log('fixture listed as one entry; deleting it removes all three weapons');
+
   assert.deepEqual(errors, [], 'no console errors');
   console.log('\nAll team checks passed.');
 } catch (e) {

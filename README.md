@@ -5,6 +5,7 @@ A mobile-first web app for scoring fencing bouts and running poules. You can use
 - **Bout scorer:** red and green lamps, big scores, and a clock that you tap to start and tap anywhere to stop. It has undo (100 steps), cards, the épée double, priority, DE periods, and a "Bout over" banner with confirm and undo.
 - **Poules:** 3–8 fencers, standard FIE bout order, and the classic V5/D3 sheet with live V, V/M, TS, TR, Ind and Rank. "Next bout" opens the scorer with names filled in and writes the result back to the sheet. Exports to CSV, PNG and print.
 - **Team matches:** FIE relay, three against three plus a reserve. Nine legs to 45 in the official order (3–6, 1–5, 2–4, 1–6, 3–4, 2–5, 1–4, 2–6, 3–5). Each leg opens in the scorer with the score and team cards carried over. A leg ends at its target or on time; only the last leg goes to priority. You can enter or correct a leg by hand, bring on the reserve once, and see each fencer's touches scored and received.
+- **Three-weapon fixtures:** choose **All Three Weapons** when creating a team match. Each club enters three fencers and a reserve for foil, épée and sabre (9 + 3). Each weapon is its own relay to 45, and the fixture page shows the overall result. You choose how it's decided: most weapons won (two of three), or total touches across all three. The fixture exports as one CSV, image or print-out.
 - **Choose Bout:** from the Bout tab, tap the format button, then **Choose Bout**. Pick any unfenced poule bout ("Bout 7 · Alice vs Bea") or the next leg of a team match, and the result goes straight back to the right sheet.
 - **Exports:** poules and team matches export as CSV (opens cleanly in Excel or Sheets), as a shareable PNG and as a printable A4 page, all in one consistent layout.
 - **Shared poules:** the organiser shares a poule with a 6-character code (e.g. `K7Q-M4X`), a link or a QR code. Anyone who joins with it can enter and edit results from their own phone, and the sheet updates live on every phone, including results entered offline once that phone reconnects.
@@ -83,7 +84,7 @@ For local development there is a stand-in server: run `npm run mock-share`, then
 
 A separate page for booking weekly training: **`…/fencing/app/book/`** (also reachable from Piste → ⋯ → Settings → Training Bookings). Share that link with members.
 
-- **Timetable:** set in [`app/book/schedule.js`](app/book/schedule.js):
+- **Timetable:** starts from the defaults in [`app/book/schedule.js`](app/book/schedule.js) (organisers can change it from the page):
   - Mon 7–9 pm, Central London FC (offsite, bring your own kit)
   - Wed 11:30 am–1:30 pm, Mandela Studio, TeamUCL Gym
   - Wed 7–9 pm, Central London FC
@@ -96,6 +97,10 @@ A separate page for booking weekly training: **`…/fencing/app/book/`** (also r
 - **Organiser:** tap the people icon (or open `…/book/#organiser`).
   - The first time, choose a passphrase (at least 10 characters). It can't be recovered or changed, so keep it safe.
   - Unlocking with it on any device shows membership numbers and lets you remove a booking (press and hold), cancel or reopen a session with a reason, and export a CSV register.
+  - **Weekly Timetable** lists every weekly session. You can edit one (venue, day, times, places, offsite, note, coaches), add a new one or delete one. Changes apply to every week from then on.
+  - **Add One-off Session** adds a single dated session, for example an open day. One-offs can be booked up to 12 weeks ahead.
+  - **Change This Date…** in an open session changes that date only, for example fewer places or a different time. Members see it marked "Changed", and **Undo Changes for This Date** puts it back.
+- **Coach lessons:** a session can have a sign-up list for each coach, with a number of slots. Members put their name down from the session. Anyone past the slots becomes a reserve and moves up when someone cancels. Members cancel their own lessons; organisers can remove anyone (press and hold). Coaches are set per weekly session or per date.
 - **Storage:** the same Firebase database as shared poules, under `booking/`. The rules in [`database.rules.json`](database.rules.json) enforce all of the above, so re-publish them after updating.
 
 ## How data is stored
@@ -127,7 +132,7 @@ app/                    the deployable site
 tests/                  unit tests (node --test)
 e2e/run.js              Playwright walkthrough in a phone viewport
 e2e/share.js            multi-phone sharing test against the mock server
-e2e/team.js             full team relay match
+e2e/team.js             full team relay match, three-weapon fixture
 e2e/book.js             booking page with organiser, members and the waitlist
 database.rules.json     Firebase security rules for shared poules
 scripts/                dev server, mock sharing server, icon generator

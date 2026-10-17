@@ -3,6 +3,7 @@
 //   booking/publicKey, booking/privateKey   organiser keys (see crypto.js)
 //   booking/sessions/{date_id}/{bookingId}  { name, enc, createdAt }   public
 //   booking/closures/{date_id}/{id}         { closed, reason, at }     public
+//   booking/config/{weekly|events|overrides|meta}/{id}   the timetable, organiser-edited, public
 //   booking/keys, cancels, admin, adminOps   proofs checked by the rules, never readable
 
 import { SHARE_DB_URL } from '../js/config.js';
@@ -67,6 +68,29 @@ export function cancel(sessionKey, id, key) {
   });
 }
 
+/** Sign up for an individual lesson with a coach during a session. */
+export function lessonSignUp(sessionKey, coachId, id, name, key) {
+  return request('PATCH', '', {
+    [`booking/lessons/${sessionKey}/${coachId}/${id}`]: { name, createdAt: SERVER_TIME },
+    [`booking/lessonKeys/${sessionKey}/${coachId}/${id}/${key}`]: true,
+  });
+}
+
+export function lessonCancel(sessionKey, coachId, id, key) {
+  return request('PATCH', '', {
+    [`booking/lessons/${sessionKey}/${coachId}/${id}`]: null,
+    [`booking/lessonCancels/${sessionKey}/${coachId}/${id}`]: key,
+  });
+}
+
+/** Organiser: remove anyone's lesson sign-up. */
+export function lessonRemove(sessionKey, coachId, id, secret) {
+  return request('PATCH', '', {
+    [`booking/lessons/${sessionKey}/${coachId}/${id}`]: null,
+    [`booking/adminOps/rmLesson/${sessionKey}/${coachId}/${id}`]: secret,
+  });
+}
+
 /** Organiser: remove anyone's booking. */
 export function removeBooking(sessionKey, id, secret) {
   return request('PATCH', '', {
@@ -82,6 +106,20 @@ export function setClosed(sessionKey, closed, reason, secret) {
     [`booking/adminOps/close/${sessionKey}/${cid}`]: secret,
     [`booking/closures/${sessionKey}/${cid}`]: { closed, reason: reason || '', at: SERVER_TIME },
   });
+}
+
+/**
+ * Organiser: write timetable entries. `entries` maps 'weekly/<id>',
+ * 'events/<id>', 'overrides/<key>' or 'meta/main' to their new value
+ * (use { deleted: true } / { cleared: true } rather than removing).
+ * Every entry carries a one-time `op` id that the rules tie to the
+ * organiser secret written in the same request.
+ */
+export function saveTimetable(entries, secret) {
+  const op = `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const body = { [`booking/adminOps/cfg/${op}`]: secret };
+  for (const [path, value] of Object.entries(entries)) body[`booking/config/${path}`] = { ...value, op };
+  return request('PATCH', '', body);
 }
 
 /**
