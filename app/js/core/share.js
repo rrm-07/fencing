@@ -7,7 +7,9 @@
 // Results are stored per bout, so two people entering different bouts at the
 // same time never overwrite each other.
 
-import { recordResult, clearResult, isDone, MIN_FENCERS, MAX_FENCERS, boutOrder } from './poule.js';
+import { isDone, MIN_FENCERS, MAX_FENCERS, boutOrder } from './poule.js';
+import * as Tableau from './tableau.js';
+import { ops, isTableau } from './kinds.js';
 
 // No 0/O, 1/I/L: easy to read out loud and to type.
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -34,6 +36,7 @@ export function normalizeCode(input) {
 
 /** What other phones need to rebuild the poule. */
 export function metaOf(p) {
+  if (isTableau(p)) return Tableau.metaOf(p);
   return {
     v: 1,
     id: p.id,
@@ -51,6 +54,8 @@ export function metaOf(p) {
 export function resultOf(b) {
   if (!isDone(b)) return null;
   return {
+    // Tableau results also say who fenced (later rounds depend on earlier results).
+    ...(b.round ? { leftId: b.leftId, rightId: b.rightId } : {}),
     scoreL: b.scoreL,
     scoreR: b.scoreR,
     winnerId: b.winnerId,
@@ -70,7 +75,13 @@ export function resultsOf(p) {
 
 export function sameResult(a, b) {
   if (!a || !b) return !a && !b;
-  return a.scoreL === b.scoreL && a.scoreR === b.scoreR && a.winnerId === b.winnerId;
+  return (
+    a.scoreL === b.scoreL &&
+    a.scoreR === b.scoreR &&
+    a.winnerId === b.winnerId &&
+    (a.leftId ?? null) === (b.leftId ?? null) &&
+    (a.rightId ?? null) === (b.rightId ?? null)
+  );
 }
 
 /** Ids of bouts whose result differs between two versions of a poule. */
@@ -90,19 +101,25 @@ export function changedBouts(prev, next) {
 export function applyRemote(p, remote, { full = false, now = Date.now() } = {}) {
   const pending = p.share?.pending ?? {};
   const data = remote ?? {};
+  const { recordResult, clearResult } = ops(p);
   let next = p;
   let changed = false;
-  for (const b of p.bouts) {
-    if (pending[b.id]) continue;
-    if (!full && !(b.id in data)) continue;
-    const r = data[b.id] ?? null;
+  // In order: a tableau's earlier rounds decide who is in the later ones.
+  for (const { id } of p.bouts) {
+    if (pending[id]) continue;
+    if (!full && !(id in data)) continue;
+    const b = next.bouts.find((x) => x.id === id);
+    const r = data[id] ?? null;
     if (sameResult(resultOf(b), r)) continue;
     try {
       next = r
         ? recordResult(
             next,
-            b.id,
+            id,
             {
+              ...(typeof r.leftId === 'string' && typeof r.rightId === 'string'
+                ? { leftId: r.leftId, rightId: r.rightId }
+                : {}),
               scoreL: r.scoreL,
               scoreR: r.scoreR,
               winnerId: r.winnerId,
@@ -111,7 +128,7 @@ export function applyRemote(p, remote, { full = false, now = Date.now() } = {}) 
             },
             now,
           )
-        : clearResult(next, b.id, now);
+        : clearResult(next, id, now);
       changed = true;
     } catch {
       // Malformed result from the server: ignore it.
@@ -126,6 +143,10 @@ const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 export function pouleFromShare(code, data, now = Date.now()) {
   const m = data?.meta;
   if (!m || typeof m !== 'object') throw new Error('No poule with that code');
+  if (m.kind === 'tableau') {
+    const t = { ...Tableau.fromMeta(m, now), share: { code, role: 'member', pending: {} } };
+    return applyRemote(t, data.results ?? {}, { full: true, now }).poule;
+  }
   const fencers = (Array.isArray(m.fencers) ? m.fencers : Object.values(m.fencers ?? {}))
     .filter((f) => f && typeof f.id === 'string')
     .map((f) => ({ id: f.id, name: str(f.name, 40) || '?', club: str(f.club, 40) }));

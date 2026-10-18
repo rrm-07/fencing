@@ -4,6 +4,12 @@ A mobile-first web app for scoring fencing bouts and running poules. You can use
 
 - **Bout scorer:** red and green lamps, big scores, and a clock that you tap to start and tap anywhere to stop. It has undo (100 steps), cards, the épée double, priority, DE periods, and a "Bout over" banner with confirm and undo.
 - **Poules:** 3–8 fencers, standard FIE bout order, and the classic V5/D3 sheet with live V, V/M, TS, TR, Ind and Rank. "Next bout" opens the scorer with names filled in and writes the result back to the sheet. Exports to CSV, PNG and print.
+- **Elimination tableaux (DE):** after the poules, open a finished poule and tap **Elimination Tableau** (or Poules → ⋯ → New Elimination Tableau).
+  - Fencers are seeded from one or more poules, all ranked together by V/M, then indicator, then touches scored. You can switch anyone off (a withdrawal or a cut), or type in a seeded list instead.
+  - The bracket follows the FIE table: seeds 1 and 2 can only meet in the final, and top seeds get byes when the numbers aren't a power of two.
+  - Bouts are to 15 (or 10 or 5) and run in the scorer with three periods, from **Next Bout** or Choose Bout. You can also enter or correct a result by hand. If a correction changes who went through, the later results that depended on it are cleared after a warning.
+  - Final ranking follows FIE rules: losing semi-finalists are 3rd equal, and fencers out in the same round are placed by seed.
+  - A tableau shares with a code exactly like a poule (no new database rules), so other pistes enter results and spectators follow live. It exports as CSV, image or print-out.
 - **Team matches:** FIE relay, three against three plus a reserve. Nine legs to 45 in the official order (3–6, 1–5, 2–4, 1–6, 3–4, 2–5, 1–4, 2–6, 3–5). Each leg opens in the scorer with the score and team cards carried over. A leg ends at its target or on time; only the last leg goes to priority. You can enter or correct a leg by hand, bring on the reserve once, and see each fencer's touches scored and received.
 - **Three-weapon fixtures:** choose **All Three Weapons** when creating a team match. Each club enters three fencers and a reserve for foil, épée and sabre (9 + 3). Each weapon is its own relay to 45, and the fixture page shows the overall result. You choose how it's decided: most weapons won (two of three), or total touches across all three. The fixture exports as one CSV, image or print-out.
 - **Choose Bout:** from the Bout tab, tap the format button, then **Choose Bout**. Pick any unfenced poule bout ("Bout 7 · Alice vs Bea") or the next leg of a team match, and the result goes straight back to the right sheet.
@@ -133,6 +139,7 @@ tests/                  unit tests (node --test)
 e2e/run.js              Playwright walkthrough in a phone viewport
 e2e/share.js            multi-phone sharing test against the mock server
 e2e/team.js             full team relay match, three-weapon fixture
+e2e/tableau.js          elimination tableau: seeding, byes, sharing, corrections
 e2e/book.js             booking page with organiser, members and the waitlist
 database.rules.json     Firebase security rules for shared poules
 scripts/                dev server, mock sharing server, icon generator

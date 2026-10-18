@@ -37,6 +37,9 @@ async function boot() {
     } else if (hash.startsWith('poule/')) {
       tab = 'poules';
       sub = { view: 'sheet', id: decodeURIComponent(hash.slice(6)) };
+    } else if (hash.startsWith('poules/tableau')) {
+      tab = 'poules';
+      sub = { view: 'newTableau', from: decodeURIComponent(hash.split('/')[2] ?? '') || null };
     } else if (hash === 'poules/new') {
       tab = 'poules';
       sub = { view: 'new' };

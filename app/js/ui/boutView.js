@@ -25,7 +25,9 @@ import { haptics, setWakeLock } from './device.js';
 import { state, dispatch, subscribe, confirmBout, newBout, boutInProgress } from '../state.js';
 import { WEAPON_LABEL, BOUT_MS, other, REASON_TEXT, doubleBlocked } from '../core/bout.js';
 import * as T from '../core/timer.js';
-import { progress, nextBout } from '../core/poule.js';
+import { ops, isTableau, pendingBouts, boutFor } from '../core/kinds.js';
+const progress = (p) => ops(p).progress(p);
+const nextBout = (p) => ops(p).nextBout(p);
 import { openSettings } from './settings.js';
 import { startNextBout } from './pouleView.js';
 import { startNextLeg } from './teamView.js';
@@ -484,7 +486,7 @@ export function mountBoutView(root) {
           ? h(
               'div',
               { class: 'actions' },
-              button('Poule sheet', () => (location.hash = `#poule/${pid}`), 'btn-gray'),
+              button(isTableau(poule) ? 'Tableau' : 'Poule sheet', () => (location.hash = `#poule/${pid}`), 'btn-gray'),
               more
                 ? button([icon('play'), 'Next bout'], goNext, 'btn-filled')
                 : button('New bout', () => newBout(), 'btn-filled'),
@@ -545,8 +547,7 @@ export function mountBoutView(root) {
   /** How many poule bouts / team legs are waiting to be fenced. */
   function pendingCount() {
     let n = 0;
-    for (const p of state.poules.values())
-      if (p.status !== 'finished') n += p.bouts.filter((x) => x.winnerId == null).length;
+    for (const p of state.poules.values()) if (p.status !== 'finished') n += pendingBouts(p).length;
     for (const m of state.matches.values()) if (m.status !== 'finished') n += 1;
     return n;
   }
@@ -576,31 +577,34 @@ export function mountBoutView(root) {
         ...poules.map((p) => {
           const nb = nextBout(p);
           const nm = (id) => p.fencers.find((f) => f.id === id)?.name ?? '?';
+          const pr = progress(p);
           return group(
-            { header: p.name, footer: `${progress(p).done} of ${p.bouts.length} bouts fenced` },
-            ...p.bouts
-              .filter((x) => x.winnerId == null)
-              .map((x) =>
-                row({
-                  lead: h('span', { class: 'bout-n' }, x.n),
-                  title: h(
-                    'span',
-                    { class: 'bout-names' },
-                    h('span', { class: 'red-text' }, nm(x.leftId)),
-                    h('span', { class: 'l' }, ' vs '),
-                    h('span', { class: 'green-text' }, nm(x.rightId)),
-                  ),
-                  trailing:
-                    cur.pouleRef?.boutId === x.id && cur.status !== 'confirmed'
-                      ? h('span', { class: 'tag tag-live' }, 'On piste')
-                      : nb?.id === x.id
-                        ? h('span', { class: 'tag tag-next' }, 'Up next')
-                        : null,
-                  chevron: true,
-                  onClick: go(() => startNextBout(p, x)),
-                  attrs: { 'aria-label': `Bout ${x.n}: ${nm(x.leftId)} vs ${nm(x.rightId)}` },
-                }),
-              ),
+            {
+              header: p.name,
+              footer: `${isTableau(p) ? 'Elimination · ' : ''}${pr.done} of ${pr.total} bouts fenced`,
+            },
+            ...pendingBouts(p).map((x) =>
+              row({
+                lead: h('span', { class: 'bout-n' }, x.n),
+                title: h(
+                  'span',
+                  { class: 'bout-names' },
+                  h('span', { class: 'red-text' }, nm(x.leftId)),
+                  h('span', { class: 'l' }, ' vs '),
+                  h('span', { class: 'green-text' }, nm(x.rightId)),
+                ),
+                subtitle: isTableau(p) ? x.roundName : null,
+                trailing:
+                  cur.pouleRef?.boutId === x.id && cur.status !== 'confirmed'
+                    ? h('span', { class: 'tag tag-live' }, 'On piste')
+                    : nb?.id === x.id
+                      ? h('span', { class: 'tag tag-next' }, 'Up next')
+                      : null,
+                chevron: true,
+                onClick: go(() => startNextBout(p, x)),
+                attrs: { 'aria-label': `Bout ${x.n}: ${nm(x.leftId)} vs ${nm(x.rightId)}` },
+              }),
+            ),
           );
         }),
         ...matches.map((m) => {
@@ -764,6 +768,8 @@ export function mountBoutView(root) {
     if (match) {
       main = `Leg ${b.teamRef.leg} · to ${b.target}`;
       sub = match.name;
+    } else if (poule && isTableau(poule)) {
+      sub = `${poule.name} · ${boutFor(poule, b.pouleRef.boutId)?.roundName ?? 'Elimination'}`;
     } else if (poule) sub = `${poule.name} · Bout ${pb?.n ?? '?'} of ${poule.bouts.length}`;
     else if (!boutInProgress() && pendingCount() > 0) sub = 'Choose a poule bout ›';
     fill(

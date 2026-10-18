@@ -3,7 +3,8 @@
 
 import * as store from './store.js';
 import { apply, createBout, toRecord, isStarted, uid } from './core/bout.js';
-import { recordResult, createPoule, fencerById } from './core/poule.js';
+import { createPoule, fencerById } from './core/poule.js';
+import { ops, isTableau, boutFor } from './core/kinds.js';
 import { changedBouts, withPending } from './core/share.js';
 import * as Team from './core/team.js';
 
@@ -44,7 +45,11 @@ export async function load() {
   const p = b.status === 'confirmed' && b.pouleRef && state.poules.get(b.pouleRef.pouleId);
   const pb = p && p.bouts.find((x) => x.id === b.pouleRef.boutId);
   if (pb && !pb.winnerId && (p.updatedAt ?? 0) < b.finishedAt) {
-    savePoule(recordResult(p, pb.id, toRecord(b), b.finishedAt));
+    try {
+      savePoule(ops(p).recordResult(p, pb.id, toRecord(b), b.finishedAt));
+    } catch {
+      /* the bracket moved on meanwhile */
+    }
   }
   // Same for a relay leg.
   const m = b.status === 'confirmed' && b.teamRef && state.matches.get(b.teamRef.matchId);
@@ -118,9 +123,13 @@ export function confirmBout() {
   const ref = b.pouleRef;
   const poule = ref && state.poules.get(ref.pouleId);
   if (poule && poule.bouts.some((x) => x.id === ref.boutId)) {
-    const updated = recordResult(poule, ref.boutId, rec, Date.now());
-    savePoule(updated);
-    return updated;
+    try {
+      const updated = ops(poule).recordResult(poule, ref.boutId, rec, Date.now());
+      savePoule(updated);
+      return updated;
+    } catch {
+      // e.g. a tableau bout whose fencers changed while it was being fenced
+    }
   }
   store.put('bouts', { ...rec, pouleId: null });
   return null;
@@ -191,15 +200,17 @@ export function deleteMatch(id) {
   notify({ type: 'matches', id });
 }
 
-/** Load a poule bout into the scorer. */
+/** Load a poule (or tableau) bout into the scorer. */
 export function startPouleBout(poule, pb) {
+  pb = boutFor(poule, pb.id) ?? pb;
   const L = fencerById(poule, pb.leftId);
   const R = fencerById(poule, pb.rightId);
+  const target = poule.target ?? 5;
   replaceBout(
     createBout({
       weapon: poule.weapon,
-      target: poule.target ?? 5,
-      de: false,
+      target,
+      de: isTableau(poule) && target >= 10,
       leftName: L.name,
       rightName: R.name,
       leftId: L.id,

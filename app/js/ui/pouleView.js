@@ -57,6 +57,9 @@ import { exportCsv, exportImage, printPoule } from './exportPoule.js';
 import { sharingEnabled, sharePoule, joinByCode, syncStatus, deleteForEveryone, isOwner } from '../sync.js';
 import { qrSvg } from './qr.js';
 import { formatCode } from '../core/share.js';
+import { ops, isTableau } from '../core/kinds.js';
+import { tableauView } from './tableauView.js';
+import { finalRanking } from '../core/tableau.js';
 
 const WEAPON_TILE = { foil: 'blue', epee: 'purple', sabre: 'orange' };
 const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
@@ -137,10 +140,22 @@ function page({ nav, body, foot }) {
   return h('section', { class: 'page' }, nav, pb, foot);
 }
 
+const noun = (p) => (isTableau(p) ? 'Tableau' : 'Poule');
+
 export function mountPoulesView(root) {
   let route = { view: 'list' };
   let query = '';
   let draft = null;
+  const tv = tableauView({
+    root,
+    page,
+    navbar,
+    backButton,
+    shareCta: (p) => shareCta(p),
+    shareFlow: (p) => shareFlow(p),
+    menu: (p) => sheetMenu(p),
+    startBout: (p, b) => startNextBout(p, b),
+  });
 
   function render() {
     if (route.view === 'sheet') {
@@ -149,8 +164,10 @@ export function mountPoulesView(root) {
         location.hash = '#poules';
         return;
       }
-      renderSheet(p);
+      if (isTableau(p)) tv.renderSheet(p);
+      else renderSheet(p);
     } else if (route.view === 'new') renderCreate();
+    else if (route.view === 'newTableau') tv.renderCreate(route.from ?? null);
     else renderList();
   }
 
@@ -227,7 +244,8 @@ export function mountPoulesView(root) {
   }
 
   function pouleRow(p) {
-    const pr = progress(p);
+    const pr = ops(p).progress(p);
+    const tab = isTableau(p);
     const finished = p.status === 'finished';
     const status = finished
       ? h('span', { class: 'status-done', 'aria-label': 'Finished' }, icon('checkCircle'))
@@ -236,11 +254,20 @@ export function mountPoulesView(root) {
       'div',
       { class: 'poule-row' },
       row({
-        lead: h('span', { class: `tile tile-${WEAPON_TILE[p.weapon]}` }, WEAPON_LABEL[p.weapon][0]),
+        lead: tab
+          ? h('span', { class: `tile tile-${WEAPON_TILE[p.weapon]} tableau-tile` }, icon('trophy'))
+          : h('span', { class: `tile tile-${WEAPON_TILE[p.weapon]}` }, WEAPON_LABEL[p.weapon][0]),
         title: p.name,
         subtitle: [
           p.share && icon('link', 'inline-icon'),
-          `${shortDate(p.date)} · ${finished ? `${p.fencers.length} fencers` : `${pr.done} of ${pr.total} bouts`}`,
+          `${shortDate(p.date)} · `,
+          tab
+            ? finished
+              ? `Won by ${finalRanking(p)[0].fencer.name}`
+              : `Elimination · ${pr.done} of ${pr.total} bouts`
+            : finished
+              ? `${p.fencers.length} fencers`
+              : `${pr.done} of ${pr.total} bouts`,
         ],
         trailing: status,
         chevron: true,
@@ -256,9 +283,10 @@ export function mountPoulesView(root) {
       title: p.name,
       subtitle: `${prettyDate(p.date)} · ${WEAPON_LABEL[p.weapon]}`,
       actions: [
-        { id: 'open', label: p.status === 'finished' ? 'Open Sheet' : 'Resume', icon: 'chevronRight' },
+        { id: 'open', label: p.status === 'finished' ? `Open ${noun(p)}` : 'Resume', icon: 'chevronRight' },
         { id: 'rename', label: 'Rename', icon: 'pencil' },
-        { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        !isTableau(p) && { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        !isTableau(p) && { id: 'tableau', label: 'Elimination Tableau…', icon: 'trophy' },
         deleteAction(p),
       ],
     });
@@ -269,11 +297,13 @@ export function mountPoulesView(root) {
   async function pouleMenu() {
     const choice = await actionSheet({
       actions: [
+        { id: 'tableau', label: 'New Elimination Tableau', icon: 'trophy' },
         { id: 'roster', label: `Roster (${state.roster.length})`, icon: 'people' },
         { id: 'settings', label: 'Settings', icon: 'gear' },
       ],
     });
-    if (choice === 'roster') rosterSheet();
+    if (choice === 'tableau') location.hash = '#poules/tableau';
+    else if (choice === 'roster') rosterSheet();
     else if (choice === 'settings') openSettings();
   }
 
@@ -535,6 +565,11 @@ export function mountPoulesView(root) {
           button([icon('photo'), 'Image'], () => exportImage(p), 'btn-tinted', { style: { flex: 1 } }),
           button([icon('doc'), 'CSV'], () => exportCsv(p), 'btn-tinted', { style: { flex: 1 } }),
         ),
+        button(
+          [icon('trophy'), 'Elimination Tableau'],
+          () => (location.hash = `#poules/tableau/${p.id}`),
+          'btn-filled btn-block btn-large',
+        ),
       );
     }
 
@@ -566,19 +601,7 @@ export function mountPoulesView(root) {
               h('span', { style: { width: `${(pr.done / pr.total) * 100}%` } }),
             ),
           ),
-          group(
-            {},
-            p.share
-              ? shareRow(p)
-              : row({
-                  lead: tile('link', 'blue'),
-                  title: 'Share with a Code',
-                  subtitle: 'Others enter results on their phones',
-                  chevron: true,
-                  onClick: () => shareFlow(p),
-                  cls: 'share-cta',
-                }),
-          ),
+          group({}, shareCta(p)),
           nextCard,
           group(
             {
@@ -827,7 +850,8 @@ export function mountPoulesView(root) {
         { id: 'csv', label: 'Export CSV', icon: 'doc' },
         { id: 'print', label: 'Print', icon: 'printer' },
         { id: 'rename', label: 'Rename', icon: 'pencil' },
-        { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        !isTableau(p) && { id: 'dup', label: 'Duplicate', icon: 'copy' },
+        !isTableau(p) && { id: 'tableau', label: 'Elimination Tableau…', icon: 'trophy' },
         deleteAction(p),
       ],
     });
@@ -840,8 +864,9 @@ export function mountPoulesView(root) {
 
   /** Rename / duplicate / delete, shared by the list and the sheet menus. */
   async function pouleAction(p, id) {
-    if (id === 'rename') {
-      const name = await promptText({ title: 'Rename Poule', value: p.name, maxLength: 60 });
+    if (id === 'tableau') location.hash = `#poules/tableau/${p.id}`;
+    else if (id === 'rename') {
+      const name = await promptText({ title: `Rename ${noun(p)}`, value: p.name, maxLength: 60 });
       if (name) savePoule({ ...p, name, updatedAt: Date.now() });
     } else if (id === 'dup') {
       const d = duplicatePoule(p);
@@ -861,7 +886,7 @@ export function mountPoulesView(root) {
   }
 
   async function deleteFlow(p) {
-    const pr = progress(p);
+    const pr = ops(p).progress(p);
     const done = (msg) => {
       toast(msg);
       if (route.view !== 'list') location.hash = '#poules';
@@ -875,7 +900,7 @@ export function mountPoulesView(root) {
       });
       if (ok) {
         deletePoule(p.id);
-        done('Poule deleted');
+        done(`${noun(p)} deleted`);
       }
       return;
     }
@@ -894,7 +919,7 @@ export function mountPoulesView(root) {
     }
     const choice = await choiceDialog({
       title: `Delete “${p.name}”?`,
-      message: `You shared this poule (code ${formatCode(p.share.code)}). Delete it for everyone, or only remove it from this phone?`,
+      message: `You shared this ${noun(p).toLowerCase()} (code ${formatCode(p.share.code)}). Delete it for everyone, or only remove it from this phone?`,
       buttons: [
         { id: 'everyone', label: 'Delete for Everyone', tone: 'danger', bold: true },
         { id: 'local', label: 'Remove from This Phone' },
@@ -924,8 +949,8 @@ export function mountPoulesView(root) {
     if (evt.type === 'remote-deleted') toast(`“${evt.name}” was deleted by the organiser`, { ms: 4000 });
     if (document.body.dataset.tab !== 'poules') return;
     if (evt.type === 'poules' || evt.type === 'roster' || evt.type === 'bout' || evt.type === 'sync') {
-      // Don't rebuild the create form under the user's fingers.
-      if (route.view === 'new') return;
+      // Don't rebuild the create forms under the user's fingers.
+      if (route.view === 'new' || route.view === 'newTableau') return;
       const y = root.querySelector('.page-body')?.scrollTop ?? 0;
       const x = root.querySelector('.sheet-scroll')?.scrollLeft ?? 0;
       render();
@@ -940,6 +965,19 @@ export function mountPoulesView(root) {
   });
 
   /* ---------- sharing ---------- */
+
+  function shareCta(p) {
+    return p.share
+      ? shareRow(p)
+      : row({
+          lead: tile('link', 'blue'),
+          title: 'Share with a Code',
+          subtitle: isTableau(p) ? 'Others follow live and enter results' : 'Others enter results on their phones',
+          chevron: true,
+          onClick: () => shareFlow(p),
+          cls: 'share-cta',
+        });
+  }
 
   function shareRow(p) {
     const { status, pending } = syncStatus(p);
@@ -956,7 +994,7 @@ export function mountPoulesView(root) {
       chevron: true,
       onClick: () => showCode(p),
       cls: 'share-bar',
-      attrs: { 'aria-label': `Shared poule, code ${formatCode(p.share.code)}, ${label}` },
+      attrs: { 'aria-label': `Shared ${noun(p).toLowerCase()}, code ${formatCode(p.share.code)}, ${label}` },
     });
   }
 
@@ -964,9 +1002,8 @@ export function mountPoulesView(root) {
     if (p.share) return showCode(p);
     if (!sharingEnabled()) return notConfigured();
     const ok = await confirmDialog({
-      title: 'Share This Poule?',
-      message:
-        'You’ll get a code. Anyone with it can see the sheet and enter or edit results from their own phone, live.',
+      title: `Share This ${noun(p)}?`,
+      message: `You’ll get a code. Anyone with it can see the ${isTableau(p) ? 'tableau' : 'sheet'} and enter or edit results from their own phone, live.`,
       confirm: 'Create Code',
     });
     if (!ok) return;
@@ -993,7 +1030,7 @@ export function mountPoulesView(root) {
         'div',
         { class: 'sheet-body share-dialog' },
         sheetNav({
-          title: p.share.role === 'owner' ? 'Share Poule' : 'Shared Poule',
+          title: p.share.role === 'owner' ? `Share ${noun(p)}` : `Shared ${noun(p)}`,
           right: { label: 'Done', bold: true, onClick: () => close() },
         }),
         h(
@@ -1058,6 +1095,7 @@ export function mountPoulesView(root) {
   return {
     show(r) {
       if (r.view === 'new' && route.view !== 'new') draft = null;
+      if (r.view === 'newTableau' && route.view !== 'newTableau') tv.resetDraft();
       route = r;
       render();
       root.querySelector('.page-body')?.scrollTo?.(0, 0);

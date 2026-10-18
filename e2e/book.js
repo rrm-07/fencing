@@ -281,9 +281,14 @@ try {
   await top(org).locator('input[aria-label="Start time"]').fill('14:00');
   await top(org).locator('input[aria-label="End time"]').fill('16:00');
   await top(org).getByRole('button', { name: 'Add', exact: true }).click();
-  await bob.waitForFunction((n) => document.querySelectorAll('.session-row').length >= n + 2, before, {
-    timeout: 8000,
-  });
+  // One or two new rows, depending on whether this Sunday's session is already over.
+  await bob.waitForFunction(
+    (n) =>
+      document.querySelectorAll('.session-row').length > n &&
+      [...document.querySelectorAll('.session-row')].some((r) => /Sunday Social/.test(r.textContent)),
+    before,
+    { timeout: 8000 },
+  );
   const config = await (await fetch(`${DB}/booking/config.json`)).json();
   assert.equal(config.meta.main.seeded, true);
   assert.equal(Object.values(config.weekly).filter((w) => !w.deleted).length, 6);

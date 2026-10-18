@@ -3,6 +3,8 @@
 
 import { toCsv, stats, ranking, rankLabel, cellText, formatVM, fencerById, progress } from '../core/poule.js';
 import * as Team from '../core/team.js';
+import * as Tab from '../core/tableau.js';
+import { isTableau } from '../core/kinds.js';
 import { WEAPON_LABEL } from '../core/bout.js';
 import { slug, shareReportImage, printReport, downloadCsv } from './report.js';
 
@@ -102,9 +104,80 @@ export function pouleReport(p) {
 }
 
 const pouleFile = (p, ext) => `${slug(p.name)}-${p.date}.${ext}`;
-export const exportCsv = (p) => downloadCsv(toCsv(p), pouleFile(p, 'csv'));
-export const exportImage = (p) => shareReportImage(pouleReport(p), pouleFile(p, 'png'));
-export const printPoule = (p) => printReport(pouleReport(p));
+// Poules and elimination tableaux export the same way.
+const reportOf = (p) => (isTableau(p) ? tableauReport(p) : pouleReport(p));
+export const exportCsv = (p) => downloadCsv(isTableau(p) ? Tab.toCsv(p) : toCsv(p), pouleFile(p, 'csv'));
+export const exportImage = (p) => shareReportImage(reportOf(p), pouleFile(p, 'png'));
+export const printPoule = (p) => printReport(reportOf(p));
+
+/* ---------- elimination tableaux ---------- */
+
+export function tableauReport(t) {
+  const rounds = Tab.bracket(t);
+  const pr = Tab.progress(t);
+  const f = (id) => (id ? Tab.fencerById(t, id) : null);
+  const final = rounds.at(-1).bouts[0];
+  const champ = f(final.winnerId);
+  const runner = f(final.loserId);
+  const ws = (b) => (b.winnerId === b.leftId ? [b.scoreL, b.scoreR] : [b.scoreR, b.scoreL]);
+  const fencerCell = (id, b) =>
+    id ? { text: `${f(id).name}`, bold: b.done && b.winnerId === id } : { text: '–', tone: 'muted' };
+  return {
+    title: t.name,
+    subtitle: `${prettyDate(t.date)} · ${WEAPON_LABEL[t.weapon]} · ${t.fencers.length} fencers · ${pr.done} of ${pr.total} bouts`,
+    hero: champ
+      ? {
+          left: { label: champ.name, value: ws(final)[0] },
+          right: { label: runner.name, value: ws(final)[1] },
+          note: `${champ.name} wins the final`,
+        }
+      : undefined,
+    sections: [
+      {
+        title: 'Final ranking',
+        columns: [
+          { label: 'Place' },
+          { label: 'Fencer', align: 'left', min: 140 },
+          { label: 'Club', align: 'left' },
+          { label: 'Seed' },
+        ],
+        rows: Tab.finalRanking(t).map((r) => [
+          { text: Tab.placeLabel(r), bold: true, fill: r.place === 1 ? 'gold' : undefined },
+          { text: r.fencer.name, bold: r.place != null && r.place <= 3 },
+          r.fencer.club || '',
+          r.fencer.seed,
+        ]),
+      },
+      ...[...rounds].reverse().map((r) => ({
+        title: r.name,
+        columns: [
+          { label: 'Seed' },
+          { label: 'Fencer', align: 'left', min: 110 },
+          { label: 'Score', min: 64 },
+          { label: 'Fencer', align: 'left', min: 110 },
+          { label: 'Seed' },
+        ],
+        rows: r.bouts.map((b) =>
+          b.bye
+            ? [
+                f(b.leftId ?? b.rightId).seed,
+                { text: f(b.leftId ?? b.rightId).name, bold: true },
+                { text: 'bye', tone: 'muted' },
+                '',
+                '',
+              ]
+            : [
+                f(b.leftId)?.seed ?? '',
+                fencerCell(b.leftId, b),
+                b.done ? { text: `${b.scoreL}–${b.scoreR}`, bold: true } : { text: '–', tone: 'muted' },
+                fencerCell(b.rightId, b),
+                f(b.rightId)?.seed ?? '',
+              ],
+        ),
+      })),
+    ],
+  };
+}
 
 /* ---------- team matches ---------- */
 
