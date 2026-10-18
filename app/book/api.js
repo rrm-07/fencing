@@ -4,7 +4,8 @@
 //   booking/sessions/{date_id}/{bookingId}  { name, enc, createdAt }   public
 //   booking/closures/{date_id}/{id}         { closed, reason, at }     public
 //   booking/config/{weekly|events|overrides|meta}/{id}   the timetable, organiser-edited, public
-//   booking/keys, cancels, admin, adminOps   proofs checked by the rules, never readable
+//   booking/attendance/{date_id}/{id}       { present, how, at, … }    public (booking id or walk-in id)
+//   booking/keys, cancels, admin, adminOps, checkin, attendProofs   proofs checked by the rules, never readable
 
 import { SHARE_DB_URL } from '../js/config.js';
 import { applyEvent } from './core.js';
@@ -21,10 +22,10 @@ export function serverUrl() {
 
 const SERVER_TIME = { '.sv': 'timestamp' };
 
-async function request(method, path, body) {
+async function request(method, path, body, query = '') {
   let res;
   try {
-    res = await fetch(`${serverUrl()}/${path}.json`, {
+    res = await fetch(`${serverUrl()}/${path}.json${query}`, {
       method,
       headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -122,16 +123,49 @@ export function saveTimetable(entries, secret) {
   return request('PATCH', '', body);
 }
 
+/** Organiser: open check-in for a session with a code, shown at the door as a QR code. */
+export function openCheckin(sessionKey, code, secret) {
+  return request('PATCH', '', {
+    [`booking/adminOps/ck/${sessionKey}/${code}`]: secret,
+    [`booking/checkin/${sessionKey}/${code}`]: true,
+  });
+}
+
+/** Member: check yourself in, proving the booking with its key and being there with the code. */
+export function checkIn(sessionKey, id, key, code) {
+  return request('PATCH', '', {
+    [`booking/attendance/${sessionKey}/${id}`]: { present: true, how: 'self', at: SERVER_TIME },
+    [`booking/attendProofs/${sessionKey}/${id}`]: { key, code },
+  });
+}
+
+/**
+ * Organiser: mark someone present or not (`id` is a booking id), or add or
+ * remove a walk-in (`extra` = { walkIn: true, name, enc? }).
+ */
+export function setAttendance(sessionKey, id, present, secret, extra = {}) {
+  const op = `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return request('PATCH', '', {
+    [`booking/adminOps/att/${op}`]: secret,
+    [`booking/attendance/${sessionKey}/${id}`]: { ...extra, present, how: 'org', at: SERVER_TIME, op },
+  });
+}
+
+/** One-off read of a path from a key onwards (for reports). */
+export function fetchFrom(path, startAt) {
+  return request('GET', path, undefined, keyQuery(startAt));
+}
+
+const keyQuery = (startAt) =>
+  startAt ? `?orderBy=${encodeURIComponent('"$key"')}&startAt=${encodeURIComponent(JSON.stringify(startAt))}` : '';
+
 /**
  * Live view of a path (optionally from a key onwards). Calls onChange(tree)
  * on every update and onStatus('live' | 'offline'). Returns a close function.
  */
 export function watch(path, { startAt, onChange, onStatus }) {
   let tree = {};
-  const q = startAt
-    ? `?orderBy=${encodeURIComponent('"$key"')}&startAt=${encodeURIComponent(JSON.stringify(startAt))}`
-    : '';
-  const es = new EventSource(`${serverUrl()}/${path}.json${q}`);
+  const es = new EventSource(`${serverUrl()}/${path}.json${keyQuery(startAt)}`);
   const handle = (kind) => (e) => {
     let msg;
     try {

@@ -34,6 +34,7 @@ npm install && npm run e2e   # end-to-end walkthrough in a 375px phone viewport 
 ```
 
 The unit tests cover:
+
 - poule ranking, including ties
 - bout order for pools of 3–8: every pair fences exactly once, and nobody fences back-to-back in pools of 5–8
 - red and black card rules
@@ -43,6 +44,7 @@ The unit tests cover:
 - timer accuracy across a simulated background/foreground
 
 The end-to-end script works through the app like a referee would:
+
 1. a full 5-touch bout with cards, a clock reset and undo
 2. a level bout decided on priority
 3. a full 5-person poule, from creation to CSV and image export
@@ -55,12 +57,14 @@ Screenshots are saved to `e2e/screens/`.
 The app is plain static files under `app/`, and every path is relative, so it works from any sub-path such as `https://you.github.io/fencing/`.
 
 **Simplest:**
+
 1. In **Settings → Pages**, set **Source** to **Deploy from a branch**.
 2. Pick your branch and **/ (root)**, then click **Save**.
 
 `index.html` at the repo root forwards to `app/`, and `.nojekyll` turns off Jekyll processing. The site goes live at `https://<user>.github.io/<repo>/` within a minute or two, and every push to that branch redeploys it.
 
 **Alternative (tests must pass before each deploy):**
+
 1. Set **Source** to **GitHub Actions**.
 2. Push to `main`. `.github/workflows/pages.yml` runs the unit tests and then publishes `app/` directly.
 
@@ -80,7 +84,7 @@ Sharing needs a small online database. Piste uses **Firebase Realtime Database**
 
 **Who can do what:** anyone with a code can read that poule and enter, edit or clear its results. Nobody can list other poules or change a shared poule's name, fencers or bout order. Only the organiser can delete a shared poule for everyone: sharing stores a random owner key on the organiser's phone (and under `owners/` on the server, where nobody can read it), and **Delete for Everyone** must present that key. Everyone else only gets **Remove from This Phone**. Codes use 31 characters × 6 positions (about 900 million combinations), so they can't realistically be guessed. Fencer names and clubs of shared poules are stored in your Firebase database.
 
-**How it works:** the organiser's phone writes the poule once (`poules/{CODE}/meta`), then each bout's result is stored separately (`poules/{CODE}/results/{boutId}`), so two people entering different bouts at the same time never overwrite each other. If two people edit the *same* bout, the last save wins. Phones subscribe to a live stream of the poule, and anything entered offline is queued ("1 to send") and sent on reconnection. When the organiser deletes a poule for everyone, it disappears from every phone that joined. Team matches are stored on the phone only (not shared).
+**How it works:** the organiser's phone writes the poule once (`poules/{CODE}/meta`), then each bout's result is stored separately (`poules/{CODE}/results/{boutId}`), so two people entering different bouts at the same time never overwrite each other. If two people edit the _same_ bout, the last save wins. Phones subscribe to a live stream of the poule, and anything entered offline is queued ("1 to send") and sent on reconnection. When the organiser deletes a poule for everyone, it disappears from every phone that joined. Team matches are stored on the phone only (not shared).
 
 **Updating the rules:** if you set up sharing before version 1.3, paste the new [`database.rules.json`](database.rules.json) into Firebase → Realtime Database → Rules and click **Publish**. Poules shared before 1.3 have no owner key, so they can only be removed phone by phone.
 
@@ -98,6 +102,7 @@ A separate page for booking weekly training: **`…/fencing/app/book/`** (also r
   - Sat 10 am–1 pm, Mandela Studio
 
   Bookings open two weeks ahead, in UK time (clock changes included).
+
 - **Places:** 30 per session. Anyone after that joins the waitlist, and when someone cancels, the first person waiting moves up automatically.
 - **Booking:** members enter their name and membership/student number. Names are visible to everyone with the link. The number is encrypted on the member's phone with the organiser's public key, so only the organiser can read it. Members cancel their own booking from the phone they booked on (a secret key kept there proves it's theirs); nobody can cancel anyone else's.
 - **Organiser:** tap the people icon (or open `…/book/#organiser`).
@@ -106,6 +111,14 @@ A separate page for booking weekly training: **`…/fencing/app/book/`** (also r
   - **Weekly Timetable** lists every weekly session. You can edit one (venue, day, times, places, offsite, note, coaches), add a new one or delete one. Changes apply to every week from then on.
   - **Add One-off Session** adds a single dated session, for example an open day. One-offs can be booked up to 12 weeks ahead.
   - **Change This Date…** in an open session changes that date only, for example fewer places or a different time. Members see it marked "Changed", and **Undo Changes for This Date** puts it back.
+- **Attendance check-in:** from an hour before a session, the organiser opens it and taps **Show Check-in Code**.
+  - Members scan the QR code with their phone camera. The phone they booked on checks them in, using the secret booking key it holds plus the code, so nobody can check in someone else from home.
+  - Members can also tap **Check In** in the session and type the code.
+  - Someone who scans without a booking is offered **Book & Check In**.
+  - The organiser can tick people off by hand (tap the number), add **walk-ins** with an optional, encrypted membership number, and take a late register for any session in the last week (Organiser → Attendance).
+  - **Attendance** shows registers taken, how many of the booked places turned up, no-shows and walk-ins over 4 weeks, 12 weeks or all time, per member (matched by membership number). It exports as CSV, and the session register CSV gains an "Attended" column.
+  - Only sessions where a register was taken count, and the waitlist never counts as a no-show.
+  - Who attended is readable by anyone with the link, like the names.
 - **Coach lessons:** a session can have a sign-up list for each coach, with a number of slots. Members put their name down from the session. Anyone past the slots becomes a reserve and moves up when someone cancels. Members cancel their own lessons; organisers can remove anyone (press and hold). Coaches are set per weekly session or per date.
 - **Storage:** the same Firebase database as shared poules, under `booking/`. The rules in [`database.rules.json`](database.rules.json) enforce all of the above, so re-publish them after updating.
 
@@ -152,7 +165,7 @@ scripts/                dev server, mock sharing server, icon generator
   - A second yellow, or any yellow after a red, becomes a red.
   - A red card gives the opponent a touch.
   - A black card ends the bout and the opponent wins.
-- **Épée:** the "Double" button scores one touch for each fencer. A double is annulled at *target − 1* each (for example 4–4) and during the priority minute.
+- **Épée:** the "Double" button scores one touch for each fencer. A double is annulled at _target − 1_ each (for example 4–4) and during the priority minute.
 - **Time:** when time runs out, the leader wins. If the score is level, Piste offers a priority draw, sets the clock to 1:00 and marks the fencer with priority. The first touch in that minute wins. If the minute runs out still level, the fencer with priority wins.
 - **DE:** at the end of periods 1 and 2 you get a 1:00 break or go straight to the next period. In sabre, the break comes when the first fencer reaches 8.
 - **Poule ranking:** by V/M, then indicator, then touches scored. Fencers who are still tied share a rank, shown as "2=".

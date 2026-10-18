@@ -38,7 +38,17 @@ import {
   validateSession,
   newSessionId,
   newLessonId,
+  recentSessions,
+  checkinOpen,
+  CHECKIN_EARLY_MS,
+  newCheckinCode,
+  formatCheckinCode,
+  normalizeCheckinCode,
+  parseCheckinHash,
+  attendanceOf,
+  attendanceReport,
 } from './core.js';
+import { qrSvg } from '../js/ui/qr.js';
 import * as api from './api.js';
 import { createOrganiserKeys, unlockOrganiser, encryptFor, decryptWith, randomKey } from './crypto.js';
 
@@ -50,6 +60,7 @@ const S = {
   closures: {},
   config: null, // organiser-edited timetable (booking/config)
   lessons: {}, // coach lesson sign-ups (booking/lessons)
+  attendance: {}, // registers (booking/attendance)
   status: 'connecting',
   org: null, // { secret, privateKey } once unlocked
   members: new Map(), // encrypted → decrypted membership numbers (organiser only)
@@ -116,11 +127,23 @@ function stateOf(s, now = Date.now()) {
   const closed = closureOf(S.closures[s.key]);
   const m = myBooking(s);
   const place = m ? placeOf(r, m.id) : { status: null };
-  return { r, closed, m, place, started: s.startMs <= now, left: Math.max(0, s.capacity - r.booked.length) };
+  const reg = attendanceOf(S.attendance[s.key]);
+  return {
+    r,
+    closed,
+    m,
+    place,
+    reg,
+    here: Boolean(m && reg.present.has(m.id)),
+    registerOpen: now >= s.startMs - CHECKIN_EARLY_MS, // organiser can take the register
+    started: s.startMs <= now,
+    left: Math.max(0, s.capacity - r.booked.length),
+  };
 }
 
 function statusTag(st) {
   if (st.closed) return h('span', { class: 'tag tag-red' }, 'Cancelled');
+  if (st.here) return h('span', { class: 'tag tag-green' }, icon('check'), 'Checked in');
   if (st.place.status === 'booked') return h('span', { class: 'tag tag-green' }, icon('check'), 'Booked');
   if (st.place.status === 'waitlist') return h('span', { class: 'tag tag-live' }, `Waitlist #${st.place.position}`);
   if (st.started) return h('span', { class: 'tag tag-gray' }, 'Under way');
@@ -166,6 +189,13 @@ function render() {
           title: 'Export Register (CSV)',
           chevron: true,
           onClick: () => exportCsv(sessions),
+        }),
+        row({
+          lead: tile('check', 'teal'),
+          title: 'Attendance',
+          subtitle: 'Registers, no-shows and walk-ins',
+          chevron: true,
+          onClick: attendanceSheet,
         }),
         row({ lead: tile('clock', 'blue'), title: 'Weekly Timetable', chevron: true, onClick: timetableSheet }),
         row({
@@ -252,11 +282,24 @@ function sessionSheet(s) {
       const v = venueOf(s);
       const st = stateOf(s);
       const isMine = (b) => mine().some((m) => m.id === b.id && m.s === s.key);
-      const person = (b, i, wait) =>
-        row({
-          lead: h('span', { class: `num-badge${wait ? ' muted' : ''}` }, i + 1),
+      const taking = S.org && st.registerOpen && !st.closed;
+      const person = (b, i, wait) => {
+        const here = st.reg.present.has(b.id);
+        const self = here && S.attendance[s.key]?.[b.id]?.how === 'self';
+        return row({
+          lead: taking
+            ? button(
+                here ? icon('check') : String(i + 1),
+                () => markPresent(s, b, !here),
+                `att-btn${here ? ' on' : ''}${wait ? ' muted' : ''}`,
+                { 'aria-label': `${here ? 'Unmark' : 'Mark'} ${b.name} as here`, 'aria-pressed': String(here) },
+              )
+            : h('span', { class: `num-badge${wait ? ' muted' : ''}` }, i + 1),
           title: [b.name, isMine(b) && h('span', { class: 'you' }, ' You')],
-          subtitle: S.org ? `No. ${S.members.get(b.enc) ?? '…'}` : null,
+          subtitle: S.org
+            ? `No. ${S.members.get(b.enc) ?? '…'}${self ? ` · checked in ${hmText(S.attendance[s.key][b.id].at)}` : ''}`
+            : null,
+          cls: here && taking ? 'is-here' : '',
           trailing:
             S.org &&
             holdButton(icon('trash'), () => organiserRemove(s, b), {
@@ -265,9 +308,19 @@ function sessionSheet(s) {
               attrs: { 'aria-label': `Remove ${b.name}` },
             }),
         });
+      };
       let action = null;
       if (st.m && st.place.status) {
         action = [
+          !st.closed &&
+            checkinOpen(s) &&
+            (st.here
+              ? h('div', { class: 'checked-in' }, icon('checkCircle'), 'You’re checked in')
+              : button(
+                  [icon('check'), 'Check In'],
+                  () => askCheckin(s, st.m),
+                  'btn-filled btn-block btn-large btn-green',
+                )),
           h(
             'p',
             { class: 'sheet-status' },
@@ -312,15 +365,50 @@ function sessionSheet(s) {
             row({ lead: tile('xmark', 'red'), title: 'Session cancelled', subtitle: st.closed.reason || null }),
           ),
         action,
+        taking &&
+          group(
+            {
+              header: `Check-in · ${st.reg.present.size + st.reg.walkIns.length} here`,
+              footer: 'Tap a number below to tick someone off by hand.',
+            },
+            checkinOpen(s) &&
+              row({
+                lead: tile('grid', 'teal'),
+                title: 'Show Check-in Code',
+                subtitle: 'Members scan it with their camera',
+                chevron: true,
+                onClick: () => checkinCodeSheet(s),
+              }),
+            row({ lead: tile('plus', 'indigo'), title: 'Add Walk-in…', chevron: true, onClick: () => walkInSheet(s) }),
+          ),
         ...s.lessons.map((l) => lessonGroup(s, l, st)),
         group(
-          { header: `Booked · ${st.r.booked.length}` },
+          {
+            header: `Booked · ${st.r.booked.length}${taking ? ` · ${st.r.booked.filter((b) => st.reg.present.has(b.id)).length} here` : ''}`,
+          },
           ...(st.r.booked.length
             ? st.r.booked.map((b, i) => person(b, i, false))
             : [row({ title: h('span', { class: 'row-sub' }, 'No one yet — be the first') })]),
         ),
         st.r.waitlist.length > 0 &&
           group({ header: `Waitlist · ${st.r.waitlist.length}` }, ...st.r.waitlist.map((b, i) => person(b, i, true))),
+        S.org &&
+          st.reg.walkIns.length > 0 &&
+          group(
+            { header: `Walk-ins · ${st.reg.walkIns.length}` },
+            ...st.reg.walkIns.map((w) =>
+              row({
+                lead: h('span', { class: 'att-btn on' }, icon('check')),
+                title: w.name,
+                subtitle: w.enc ? `No. ${S.members.get(w.enc) ?? '…'}` : 'No number given',
+                trailing: holdButton(icon('trash'), () => removeWalkIn(s, w), {
+                  cls: 'mini del',
+                  hint: 'Press and hold to remove this walk-in',
+                  attrs: { 'aria-label': `Remove walk-in ${w.name}` },
+                }),
+              }),
+            ),
+          ),
         S.org &&
           group(
             { header: 'Organiser' },
@@ -521,12 +609,10 @@ function bookSheet(s) {
         const key = randomKey();
         const enc = await encryptFor(S.keys.publicKey, details.member);
         await api.book(s.key, id, { name: details.name, enc }, key);
-        store.set(MINE, [
-          ...mine().filter((m) => m.s >= zonedDate(Date.now())),
-          { s: s.key, id, key, name: details.name },
-        ]);
+        const entry = { s: s.key, id, key, name: details.name };
+        store.set(MINE, [...mine().filter((m) => m.s >= zonedDate(Date.now())), entry]);
         store.set(ME, details);
-        close();
+        close(entry);
         toast(st.left ? `You’re booked: ${dayShort(s)}` : `You’re on the waitlist for ${dayShort(s)}`, { ms: 3500 });
         render();
       } catch (e) {
@@ -682,7 +768,7 @@ async function decryptVisible(sessions) {
   if (!S.org) return;
   let changed = false;
   for (const s of sessions) {
-    for (const b of Object.values(S.sessions[s.key] ?? {})) {
+    for (const b of [...Object.values(S.sessions[s.key] ?? {}), ...Object.values(S.attendance[s.key] ?? {})]) {
       if (!b?.enc || S.members.has(b.enc)) continue;
       S.members.set(b.enc, await decryptWith(S.org.privateKey, b.enc));
       changed = true;
@@ -1143,6 +1229,8 @@ async function exportCsv(sessions) {
   for (const s of sessions) {
     const r = roster(S.sessions[s.key], s.capacity);
     const closed = closureOf(S.closures[s.key]);
+    const reg = attendanceOf(S.attendance[s.key]);
+    const attended = (b) => (reg.present.has(b.id) ? 'yes' : reg.taken ? 'no' : '');
     for (const [list, status] of [
       [r.booked, closed ? 'cancelled' : 'booked'],
       [r.waitlist, 'waitlist'],
@@ -1155,14 +1243,395 @@ async function exportCsv(sessions) {
           name: b.name,
           member: S.members.get(b.enc),
           bookedAt: b.createdAt,
+          attended: attended(b),
         }),
       );
     }
+    reg.walkIns.forEach((w, i) =>
+      rows.push({
+        session: s,
+        status: 'walk-in',
+        position: i + 1,
+        name: w.name,
+        member: w.enc ? S.members.get(w.enc) : '',
+        bookedAt: null,
+        attended: 'yes',
+      }),
+    );
   }
   if (!rows.length) return toast('No bookings to export yet');
   download(
     `training-register-${zonedDate(Date.now())}.csv`,
     new Blob(['﻿', registerCsv(rows)], { type: 'text/csv;charset=utf-8' }),
+  );
+}
+
+/* ---------- attendance ---------- */
+
+const hmText = (ms) => {
+  const x = hm(ms);
+  return `${x.t} ${x.p}`;
+};
+const CODES = 'piste:checkinCodes'; // organiser: { sessionKey: code } opened on this phone
+
+async function markPresent(s, b, present) {
+  try {
+    await api.setAttendance(s.key, b.id, present, S.org.secret);
+  } catch (e) {
+    toast(e.message, { ms: 4000 });
+  }
+}
+
+async function removeWalkIn(s, w) {
+  try {
+    await api.setAttendance(s.key, w.id, false, S.org.secret, { walkIn: true, name: w.name });
+    toast(`Removed ${w.name}`);
+  } catch (e) {
+    toast(e.message, { ms: 4000 });
+  }
+}
+
+/** Organiser: the QR code (and typed code) for members to check themselves in. */
+async function checkinCodeSheet(s) {
+  const codes = store.get(CODES, {});
+  let code = codes[s.key];
+  if (!code) {
+    code = newCheckinCode();
+    try {
+      await api.openCheckin(s.key, code, S.org.secret);
+    } catch (e) {
+      return toast(e.message, { ms: 4000 });
+    }
+    const today = zonedDate(Date.now());
+    store.set(CODES, {
+      ...Object.fromEntries(Object.entries(codes).filter(([k]) => k.slice(0, 10) >= today)),
+      [s.key]: code,
+    });
+  }
+  const link = `${location.href.split('#')[0]}#checkin/${s.key}/${code}`;
+  let redraw = null;
+  return modal((close) => {
+    const count = h('div', { class: 'qr-count' });
+    const draw = () => {
+      const st = stateOf(s);
+      fill(count, `${st.reg.present.size + st.reg.walkIns.length} checked in · ${st.r.booked.length} booked`);
+    };
+    redraw = draw;
+    sheets.add(draw);
+    draw();
+    return h(
+      'div',
+      { class: 'sheet-body share-dialog' },
+      sheetNav({ title: 'Check In', right: { label: 'Done', bold: true, onClick: () => close() } }),
+      h('div', { class: 'qr-title' }, `${venueOf(s).short} · ${dayShort(s)}`),
+      h(
+        'div',
+        { class: 'qr-wrap' },
+        qrSvg(link, { label: `QR code to check in to ${venueOf(s).name}` }),
+        h('div', { class: 'qr-caption' }, 'Point your phone’s camera at this, or type the code in the session.'),
+      ),
+      h(
+        'div',
+        { class: 'share-code', 'aria-label': `Check-in code ${code.split('').join(' ')}` },
+        formatCheckinCode(code),
+      ),
+      count,
+    );
+  }).finally(() => sheets.delete(redraw));
+}
+
+/** Member: type the code shown at the door. */
+async function askCheckin(s, m) {
+  const typed = await promptText({
+    title: 'Check In',
+    message: 'Scan the QR code at the door with your camera, or type the code shown under it.',
+    placeholder: 'ABCD-2345',
+    confirm: 'Check In',
+    maxLength: 12,
+    attrs: { autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Check-in code' },
+  });
+  if (typed === null) return;
+  const code = normalizeCheckinCode(typed);
+  if (!code) return toast('That code doesn’t look right (8 letters and numbers)', { ms: 3500 });
+  await checkInWith(s, m, code);
+}
+
+async function checkInWith(s, m, code) {
+  if (attendanceOf(S.attendance[s.key]).present.has(m.id)) return checkedInSheet(s);
+  try {
+    await api.checkIn(s.key, m.id, m.key, code);
+    checkedInSheet(s);
+  } catch (e) {
+    toast(/permission/.test(e.message) ? 'That code isn’t right for this session' : e.message, { ms: 4000 });
+  }
+}
+
+function checkedInSheet(s) {
+  return modal(
+    (close) =>
+      h(
+        'div',
+        { class: 'alert checked-alert' },
+        h(
+          'div',
+          { class: 'alert-body' },
+          h('div', { class: 'big-check' }, icon('checkCircle')),
+          h('h2', {}, 'You’re checked in'),
+          h('p', {}, `${venueOf(s).name} · ${dayShort(s)} · ${timeRange(s)}`),
+        ),
+        h(
+          'div',
+          { class: 'alert-actions' },
+          button('Done', () => close(), 'alert-btn bold'),
+        ),
+      ),
+    { kind: 'alert' },
+  );
+}
+
+/** Opened from the QR code: check in with the booking on this phone, or book first. */
+async function checkinFromLink({ session: key, code }) {
+  history.replaceState(null, '', location.pathname + location.search);
+  const s = [...sessionsAt(), ...recentSessions(Date.now(), { days: 1, config: S.config })].find((x) => x.key === key);
+  if (!s) return toast('That session isn’t on the timetable', { ms: 4000 });
+  if (!checkinOpen(s)) {
+    return confirmDialog({
+      title: Date.now() < s.startMs ? 'Check-in isn’t open yet' : 'This session has finished',
+      message: `${venueOf(s).name} · ${dayShort(s)} · ${timeRange(s)}. Check-in opens an hour before the start.`,
+      confirm: 'OK',
+      cancel: 'Close',
+    });
+  }
+  const m = myBooking(s);
+  if (m) return checkInWith(s, m, code);
+  const st = stateOf(s);
+  if (st.closed) return toast('This session has been cancelled', { ms: 4000 });
+  const ok = await confirmDialog({
+    title: 'No booking on this phone',
+    message: `You haven’t booked ${venueOf(s).short}, ${dayShort(s)} on this phone. Book now and check in?`,
+    confirm: 'Book & Check In',
+  });
+  if (!ok) return;
+  const booked = await bookSheet(s); // resolves with the new booking
+  if (booked) await checkInWith(s, booked, code);
+}
+
+/** Organiser: add someone who turned up without booking. */
+function walkInSheet(s) {
+  return modal((close) => {
+    const name = h('input', {
+      class: 'input',
+      placeholder: 'Full name',
+      maxlength: 60,
+      autocomplete: 'off',
+      'aria-label': 'Walk-in name',
+    });
+    const member = h('input', {
+      class: 'input',
+      placeholder: 'Membership / student no. (optional)',
+      autocapitalize: 'characters',
+      autocomplete: 'off',
+      maxlength: 20,
+      'aria-label': 'Walk-in membership number',
+    });
+    const add = button('Add Walk-in', go, 'btn-filled btn-block btn-large');
+    async function go() {
+      const n = cleanName(name.value);
+      const num = member.value.trim().toUpperCase();
+      if (n.length < 2) return toast('Enter their name');
+      if (num && validateBooking({ name: n, member: num })) return toast(validateBooking({ name: n, member: num }));
+      add.disabled = true;
+      try {
+        const extra = { walkIn: true, name: n };
+        if (num) extra.enc = await encryptFor(S.keys.publicKey, num);
+        await api.setAttendance(s.key, `w${newId().slice(1)}`, true, S.org.secret, extra);
+        close();
+        toast(`${n} added`);
+      } catch (e) {
+        toast(e.message, { ms: 4000 });
+        add.disabled = false;
+      }
+    }
+    return h(
+      'form',
+      { class: 'sheet-body', onSubmit: (e) => (e.preventDefault(), go()) },
+      sheetNav({ title: 'Walk-in', left: { label: 'Cancel', onClick: () => close() } }),
+      group(
+        { footer: 'Someone who turned up without booking. The number is encrypted like a booking’s.' },
+        row({ title: name, cls: 'row-inline' }),
+        row({ title: member, cls: 'row-inline' }),
+      ),
+      add,
+    );
+  });
+}
+
+const PERIODS = [
+  ['4', '4 Weeks'],
+  ['12', '12 Weeks'],
+  ['all', 'All Time'],
+];
+
+/** Organiser: registers to take (today and the last week) and attendance over time. */
+function attendanceSheet() {
+  let period = '4';
+  let data = null; // { from, sessions, attendance, closures }
+  let loading = false;
+  let redraw = null;
+  const fromDate = () => (period === 'all' ? '2000-01-01' : zonedDate(Date.now() - Number(period) * 7 * 86_400_000));
+  async function load() {
+    const from = fromDate();
+    if (data?.from === from || loading) return;
+    loading = true;
+    redraw?.();
+    try {
+      const [sessions, attendance, closures] = await Promise.all(
+        ['sessions', 'attendance', 'closures'].map((x) => api.fetchFrom(`booking/${x}`, from)),
+      );
+      data = { from, sessions: sessions ?? {}, attendance: attendance ?? {}, closures: closures ?? {} };
+      const encs = Object.values(data.sessions).flatMap((x) => Object.values(x ?? {}));
+      const walk = Object.values(data.attendance).flatMap((x) => Object.values(x ?? {}));
+      for (const b of [...encs, ...walk]) {
+        if (b?.enc && !S.members.has(b.enc)) S.members.set(b.enc, await decryptWith(S.org.privateKey, b.enc));
+      }
+    } catch (e) {
+      toast(e.message, { ms: 4000 });
+    }
+    loading = false;
+    redraw?.();
+  }
+  const capacityOf = (key) => {
+    const all = [...sessionsAt(), ...recentSessions(Date.now(), { days: 400, config: S.config })];
+    return all.find((x) => x.key === key)?.capacity ?? CAPACITY;
+  };
+  const personOf = (b) => {
+    const num = b.enc && S.members.get(b.enc);
+    return num && num !== '?'
+      ? { key: `no:${num}`, name: cleanName(b.name), number: num }
+      : { key: cleanName(b.name).toLowerCase(), name: cleanName(b.name) };
+  };
+  return modal((close) => {
+    const body = h('div', { class: 'sheet-body' });
+    const draw = () => {
+      const now = Date.now();
+      const toTake = [
+        ...sessionsAt(now).filter((x) => now >= x.startMs - CHECKIN_EARLY_MS),
+        ...recentSessions(now, { days: 7, config: S.config }),
+      ];
+      const report = data && attendanceReport({ ...data, capacityOf, personOf, from: data.from });
+      const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+      fill(
+        body,
+        sheetNav({ title: 'Attendance', right: { label: 'Done', bold: true, onClick: () => close() } }),
+        group(
+          {
+            header: 'Registers',
+            footer: 'Today’s sessions and the last week. Open one to tick people off or add walk-ins.',
+          },
+          ...(toTake.length
+            ? toTake.map((x) => {
+                const reg = attendanceOf(S.attendance[x.key]);
+                const booked = roster(S.sessions[x.key], x.capacity).booked.length;
+                const closed = closureOf(S.closures[x.key]);
+                return row({
+                  lead: tile(reg.taken ? 'check' : 'clock', reg.taken ? 'green' : 'gray'),
+                  title: `${dayShort(x)} · ${venueOf(x).short}`,
+                  subtitle: closed
+                    ? 'Cancelled'
+                    : reg.taken
+                      ? `${reg.present.size + reg.walkIns.length} here · ${booked} booked`
+                      : `Register not taken · ${booked} booked`,
+                  chevron: true,
+                  onClick: () => sessionSheet(x),
+                  attrs: { 'aria-label': `Register for ${dayShort(x)} ${venueOf(x).name}` },
+                });
+              })
+            : [row({ title: h('span', { class: 'row-sub' }, 'No sessions in the last week') })]),
+        ),
+        h(
+          'div',
+          { class: 'round-tabs' },
+          segmented(PERIODS, period, (v) => ((period = v), load(), draw()), 'Period'),
+        ),
+        !report
+          ? h('p', { class: 'sheet-status' }, loading ? 'Loading…' : '')
+          : [
+              h(
+                'div',
+                { class: 'stat-tiles' },
+                h('div', { class: 'stat' }, h('b', {}, report.sessions), h('span', {}, 'registers')),
+                h(
+                  'div',
+                  { class: 'stat' },
+                  h('b', {}, pct(report.attended - report.walkIns, report.places)),
+                  h('span', {}, 'turned up'),
+                ),
+                h('div', { class: 'stat warn' }, h('b', {}, report.noShows), h('span', {}, 'no-shows')),
+                h('div', { class: 'stat' }, h('b', {}, report.walkIns), h('span', {}, 'walk-ins')),
+              ),
+              group(
+                {
+                  header: 'Members',
+                  footer:
+                    'Only sessions with a register count. A no-show had a place but wasn’t checked in; the waitlist doesn’t count. People are matched by membership number.',
+                },
+                ...(report.people.length
+                  ? report.people.map((p) =>
+                      row({
+                        title: p.name,
+                        subtitle: [
+                          `Came ${p.attended}`,
+                          p.walkIns ? ` (${p.walkIns} walk-in)` : '',
+                          p.booked ? ` · ${pct(p.attended - p.walkIns, p.booked)} of bookings` : '',
+                        ].join(''),
+                        detail: p.noShows
+                          ? h('span', { class: 'noshow' }, `${p.noShows} no-show${p.noShows === 1 ? '' : 's'}`)
+                          : '',
+                        attrs: { 'aria-label': `${p.name}: came ${p.attended}, ${p.noShows} no-shows` },
+                      }),
+                    )
+                  : [row({ title: h('span', { class: 'row-sub' }, 'No registers taken in this period') })]),
+              ),
+              report.people.length > 0 &&
+                group(
+                  {},
+                  row({
+                    lead: tile('doc', 'green'),
+                    title: 'Export Attendance (CSV)',
+                    chevron: true,
+                    onClick: () => exportAttendance(report, data.from),
+                  }),
+                ),
+            ],
+      );
+    };
+    redraw = draw;
+    sheets.add(draw);
+    draw();
+    load();
+    return body;
+  }).finally(() => sheets.delete(redraw));
+}
+
+function exportAttendance(report, from) {
+  const cell = (v) => {
+    const x = String(v ?? '');
+    return /[",\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x;
+  };
+  const lines = [
+    ['From', from].join(','),
+    ['Registers', report.sessions].join(','),
+    '',
+    ['Name', 'Membership / student no.', 'Places booked', 'Attended', 'Of which walk-ins', 'No-shows'].join(','),
+    ...report.people.map((p) =>
+      [p.name, p.key.startsWith('no:') ? p.key.slice(3) : '', p.booked, p.attended, p.walkIns, p.noShows]
+        .map(cell)
+        .join(','),
+    ),
+  ];
+  download(
+    `training-attendance-${zonedDate(Date.now())}.csv`,
+    new Blob(['﻿', lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' }),
   );
 }
 
@@ -1182,22 +1651,35 @@ async function start() {
     return;
   }
   const today = zonedDate(Date.now());
+  const weekAgo = zonedDate(Date.now() - 7 * 86_400_000); // recent registers can still be taken
   const status = (st) => {
     if (S.status !== st) {
       S.status = st;
       render();
     }
   };
+  let loaded;
+  const sessionsLoaded = new Promise((resolve) => (loaded = resolve));
   api.watch('booking/sessions', {
-    startAt: today,
+    startAt: weekAgo,
     onChange: (t) => {
       S.sessions = t;
+      loaded();
       render();
       if (S.org) decryptVisible(sessionsAt());
     },
     onStatus: status,
   });
-  api.watch('booking/closures', { startAt: today, onChange: (t) => ((S.closures = t), render()), onStatus: status });
+  api.watch('booking/closures', { startAt: weekAgo, onChange: (t) => ((S.closures = t), render()), onStatus: status });
+  api.watch('booking/attendance', {
+    startAt: weekAgo,
+    onChange: (t) => {
+      S.attendance = t;
+      render();
+      if (S.org) decryptVisible(sessionsAt());
+    },
+    onStatus: status,
+  });
   api.watch('booking/config', { onChange: (t) => ((S.config = t), render()), onStatus: status });
   api.watch('booking/lessons', { startAt: today, onChange: (t) => ((S.lessons = t), render()), onStatus: status });
   try {
@@ -1208,6 +1690,15 @@ async function start() {
   S.keysLoaded = true;
   render();
   if (location.hash === '#organiser') organiserSheet();
+  // Check-in links from the QR code at the door (also when the page is already open).
+  const onCheckinLink = async () => {
+    const checkin = parseCheckinHash(location.hash);
+    if (!checkin) return;
+    await Promise.race([sessionsLoaded, new Promise((r) => setTimeout(r, 8000))]);
+    checkinFromLink(checkin);
+  };
+  window.addEventListener('hashchange', onCheckinLink);
+  onCheckinLink();
   setInterval(render, 60_000); // sessions drop off as they finish
   // Expose for debugging and end-to-end tests.
   window.__book = S;

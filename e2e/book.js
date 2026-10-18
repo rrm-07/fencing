@@ -325,6 +325,172 @@ try {
   );
   log('timetable tampering refused without the organiser passphrase');
 
+  // Attendance: a one-off session happening now, so check-in is open.
+  const ukNow = (ms) =>
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(ms);
+  // Starts in 20 minutes: still bookable, and check-in (from an hour before) is open.
+  const startMs = Date.now() + 20 * 60_000;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(startMs);
+  const startT = ukNow(startMs);
+  const endT = ukNow(startMs + 60 * 60_000) > startT ? ukNow(startMs + 60 * 60_000) : '23:59';
+  await settle(org);
+  while (await org.locator('.modal-wrap.open').count()) {
+    await top(org).getByRole('button', { name: 'Done' }).click();
+    await settle(org);
+  }
+  await org.locator('#book').getByRole('button', { name: 'Add One-off Session' }).click();
+  await settle(org);
+  await top(org).locator('input[aria-label="Venue or title"]').fill('Open Bouting Night');
+  await top(org).locator('input[aria-label="Date"]').fill(today);
+  await top(org).locator('input[aria-label="Start time"]').fill(startT);
+  await top(org).locator('input[aria-label="End time"]').fill(endT);
+  await top(org).getByRole('button', { name: 'Add', exact: true }).click();
+  const nightRow = (page) => page.locator('.session-row').filter({ hasText: 'Open Bouting Night' }).first();
+  for (const [pg, who] of [
+    [alice, 'Alice'],
+    [bob, 'Bob'],
+  ]) {
+    await nightRow(pg).waitFor({ timeout: 8000 });
+    await nightRow(pg).click();
+    await settle(pg);
+    await dlg(pg, 'Book a Place');
+    await settle(pg);
+    await dlg(pg, 'Book My Place');
+    await pg.waitForFunction(() =>
+      /You’re booked/.test(document.querySelector('.modal-wrap.open .sheet-status')?.textContent),
+    );
+    if (who === 'Alice') await dlg(pg, 'Done');
+  }
+  log('a session is on now: Alice and Bob booked it');
+
+  // Organiser shows the check-in code at the door.
+  await nightRow(org).click();
+  await settle(org);
+  await top(org)
+    .getByRole('button', { name: /Show Check-in Code/ })
+    .click();
+  await org.waitForSelector('.modal-wrap.open svg.qr');
+  await settle(org);
+  const checkCode = (await org.locator('.modal-wrap.open .share-code').textContent()).trim();
+  assert.match(checkCode, /^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/);
+  const keyOfNight = await (await fetch(`${DB}/booking/sessions.json`)).json();
+  const sKey = Object.keys(keyOfNight).find(
+    (k) =>
+      k.startsWith(`${today}_e-`) && // the one-off session
+      Object.values(keyOfNight[k]).some((b) => b.name === 'Bob Chen'),
+  );
+  await org.screenshot({ path: `${shots}b11-checkin-code.png` });
+  log(`organiser shows the check-in QR code (${checkCode})`);
+
+  // Alice scans it: her phone opens the link and checks her in.
+  await alice.goto(`${BOOK_URL}#checkin/${sKey}/${checkCode.replace('-', '')}`);
+  await alice.waitForSelector('.modal-wrap.open .checked-alert', { timeout: 10000 });
+  await settle(alice);
+  await alice.screenshot({ path: `${shots}b12-checked-in.png` });
+  await top(alice).getByRole('button', { name: 'Done' }).click();
+  await org.waitForFunction(() => /^1 checked in/.test(document.querySelector('.qr-count')?.textContent), null, {
+    timeout: 8000,
+  });
+  assert.match(await nightRow(alice).textContent(), /Checked in/);
+  log('Alice scanned it: checked in, and the organiser’s count went up live');
+
+  // Bob types the code; a wrong one is refused.
+  await bob.locator('.modal-wrap.open').getByRole('button', { name: 'Check In' }).click();
+  await settle(bob);
+  await bob.locator('input[aria-label="Check-in code"]').fill('ZZZZ-ZZZZ');
+  await top(bob).getByRole('button', { name: 'Check In', exact: true }).click();
+  await bob.waitForFunction(() => /isn’t right/.test(document.querySelector('.toast')?.textContent), null, {
+    timeout: 8000,
+  });
+  await bob.locator('.modal-wrap.open').getByRole('button', { name: 'Check In' }).click();
+  await settle(bob);
+  await bob.locator('input[aria-label="Check-in code"]').fill(checkCode.toLowerCase());
+  await top(bob).getByRole('button', { name: 'Check In', exact: true }).click();
+  await bob.waitForSelector('.modal-wrap.open .checked-alert', { timeout: 8000 });
+  await top(bob).getByRole('button', { name: 'Done' }).click();
+  await bob.waitForSelector('.modal-wrap.open .checked-in');
+  await settle(bob);
+  await top(bob).getByRole('button', { name: 'Done' }).click();
+  log('Bob typed the code (a wrong code was refused): checked in');
+
+  // Carol has no booking: scanning offers to book and check in.
+  const carol = await phone('carol');
+  await carol.goto(`${BOOK_URL}#checkin/${sKey}/${checkCode.replace('-', '')}`);
+  await carol.waitForSelector('.modal-wrap.open .alert', { timeout: 10000 });
+  assert.match(await top(carol).textContent(), /No booking on this phone/);
+  await dlg(carol, 'Book & Check In');
+  await settle(carol);
+  await carol.locator('input[aria-label="Full name"]').fill('Carol Diaz');
+  await carol.locator('input[aria-label="Membership or student number"]').fill('UCL9999');
+  await dlg(carol, 'Book My Place');
+  await carol.waitForSelector('.checked-alert', { timeout: 10000 });
+  log('Carol scanned without a booking: booked and checked in in one go');
+
+  // Tampering: checking someone else in without their key, or as the organiser without the passphrase.
+  const bobId = Object.entries(keyOfNight[sKey]).find(([, b]) => b.name === 'Bob Chen')[0];
+  const sess = (await (await fetch(`${DB}/booking/sessions.json`)).json())[sKey];
+  const someone = Object.keys(sess).find((id) => id !== bobId);
+  assert.equal(
+    await rest('PATCH', '', {
+      [`booking/attendance/${sKey}/${someone}x`]: { present: true, how: 'self', at: { '.sv': 'timestamp' } },
+      [`booking/attendProofs/${sKey}/${someone}x`]: { key: 'k'.repeat(32), code: checkCode.replace('-', '') },
+    }),
+    401,
+  );
+  assert.equal(
+    await rest('PATCH', '', {
+      'booking/adminOps/att/opx': 'f'.repeat(64),
+      [`booking/attendance/${sKey}/${bobId}`]: { present: false, how: 'org', at: { '.sv': 'timestamp' }, op: 'opx' },
+    }),
+    401,
+  );
+  log('tampering refused: no checking others in, no fake organiser marks');
+
+  // Organiser: un-ticks Bob (he left), adds a walk-in.
+  await top(org).getByRole('button', { name: 'Done' }).click();
+  await settle(org);
+  await top(org).locator('[aria-label="Unmark Bob Chen as here"]').click();
+  await top(org).locator('[aria-label="Mark Bob Chen as here"]').waitFor({ timeout: 8000 });
+  await top(org)
+    .getByRole('button', { name: /Add Walk-in/ })
+    .click();
+  await settle(org);
+  await org.locator('input[aria-label="Walk-in name"]').fill('Wes Walker');
+  await org.locator('input[aria-label="Walk-in membership number"]').fill('ucl7777');
+  await dlg(org, 'Add Walk-in');
+  await org.waitForFunction(() => /Walk-ins · 1/.test(document.querySelector('.modal-wrap.open')?.textContent), null, {
+    timeout: 8000,
+  });
+  await org.waitForFunction(() => /No\. UCL7777/.test(document.querySelector('.modal-wrap.open')?.textContent));
+  await org.screenshot({ path: `${shots}b13-register.png` });
+  const [regDl] = await Promise.all([
+    org.waitForEvent('download'),
+    top(org).getByRole('button', { name: 'Export This Session (CSV)' }).click(),
+  ]);
+  const reg = await readFile(await regDl.path(), 'utf8');
+  assert.match(reg, /Alice Martin,UCL1234,[^,]+,yes/);
+  assert.match(reg, /Bob Chen,UCL5678,[^,]+,no/);
+  assert.match(reg, /walk-in,1,Wes Walker,UCL7777,,yes/);
+  await top(org).getByRole('button', { name: 'Done' }).click();
+  log('organiser un-ticked Bob and added walk-in Wes: the register CSV says who came');
+
+  // Attendance report.
+  await org.getByRole('button', { name: /^Attendance/ }).click();
+  await org.waitForSelector('.modal-wrap.open .stat-tiles', { timeout: 10000 });
+  const stats = await org.locator('.modal-wrap.open .stat b').allTextContents();
+  assert.deepEqual(stats, ['1', '67%', '1', '1'], stats.join(','));
+  assert.match(await org.locator('[aria-label^="Bob Chen:"]').getAttribute('aria-label'), /came 0, 1 no-shows/);
+  assert.match(await org.locator('[aria-label^="Wes Walker:"]').getAttribute('aria-label'), /came 1, 0 no-shows/);
+  await settle(org);
+  await org.screenshot({ path: `${shots}b14-attendance.png` });
+  await top(org).getByRole('button', { name: 'Done' }).click();
+  log('attendance report: 1 register, 67% of places turned up, Bob a no-show, 1 walk-in');
+
   // A wrong passphrase can't unlock organiser mode.
   await alice.locator('[aria-label="Organiser"]').click();
   await settle(alice);
@@ -339,6 +505,13 @@ try {
   console.log('\nAll booking checks passed.');
 } catch (e) {
   console.error('\nBOOK E2E FAILED:', e.message, (e.stack.match(/book\.js:\d+/g) ?? []).join(' '));
+  for (const ctx of browser.contexts()) {
+    const txt = await ctx
+      .pages()[0]
+      ?.evaluate(() => [...document.querySelectorAll('.modal-wrap.open')].map((m) => m.textContent.slice(0, 600)))
+      .catch(() => null);
+    if (txt?.length) console.error('  open sheets:', JSON.stringify(txt));
+  }
   for (const [i, ctx] of browser.contexts().entries())
     await ctx
       .pages()[0]

@@ -104,15 +104,29 @@ function makeSession(base, date, kind, overrides, today) {
 export function upcomingSessions(now = Date.now(), { weeks = WEEKS_AHEAD, config = null } = {}) {
   const t = timetable(config);
   const today = zonedDate(now);
+  const out = sessionsBetween(t, today, addDays(today, weeks * 7), addDays(today, EVENT_WEEKS * 7), today);
+  return out.filter((s) => s.endMs > now).sort(bySessionTime);
+}
+
+/** Sessions that finished in the last `days` days, most recent first (for taking a register late). */
+export function recentSessions(now = Date.now(), { days = 7, config = null } = {}) {
+  const t = timetable(config);
+  const today = zonedDate(now);
+  const out = sessionsBetween(t, addDays(today, -days), addDays(today, 1), addDays(today, 1), today);
+  return out.filter((s) => s.endMs <= now).sort((a, b) => bySessionTime(b, a));
+}
+
+const bySessionTime = (a, b) => a.startMs - b.startMs || a.title.localeCompare(b.title);
+
+/** Weekly sessions dated [from, weeklyTo), one-offs dated [from, eventsTo). */
+function sessionsBetween(t, from, weeklyTo, eventsTo, today) {
   const out = [];
-  for (let i = 0; i < weeks * 7; i++) {
-    const date = addDays(today, i);
+  for (let date = from; date < weeklyTo; date = addDays(date, 1)) {
     for (const w of t.weekly) if (w.day === weekday(date)) out.push(makeSession(w, date, 'weekly', t.overrides, today));
   }
-  const last = addDays(today, EVENT_WEEKS * 7);
   for (const e of t.events)
-    if (e.date >= today && e.date < last) out.push(makeSession(e, e.date, 'event', t.overrides, today));
-  return out.filter((s) => s.endMs > now).sort((a, b) => a.startMs - b.startMs || a.title.localeCompare(b.title));
+    if (e.date >= from && e.date < eventsTo) out.push(makeSession(e, e.date, 'event', t.overrides, today));
+  return out;
 }
 
 /** Check a session from the editor. Returns an error message or null. */
@@ -243,10 +257,12 @@ const csvCell = (v) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-/** CSV register. rows: [{ session, status, position, name, member, bookedAt }] */
+/** CSV register. rows: [{ session, status, position, name, member, bookedAt, attended? }] */
 export function registerCsv(rows) {
   const lines = [
-    ['Date', 'Start', 'End', 'Venue', 'Status', '#', 'Name', 'Membership / student no.', 'Booked at'].join(','),
+    ['Date', 'Start', 'End', 'Venue', 'Status', '#', 'Name', 'Membership / student no.', 'Booked at', 'Attended'].join(
+      ',',
+    ),
   ];
   for (const r of rows) {
     lines.push(
@@ -260,10 +276,130 @@ export function registerCsv(rows) {
         r.name,
         r.member ?? '',
         r.bookedAt ? new Date(r.bookedAt).toISOString() : '',
+        r.attended ?? '',
       ]
         .map(csvCell)
         .join(','),
     );
   }
   return lines.join('\r\n') + '\r\n';
+}
+
+/* ---------- attendance ---------- */
+
+/** Members can check in from an hour before a session until it ends. */
+export const CHECKIN_EARLY_MS = 60 * 60_000;
+export const checkinOpen = (s, now = Date.now()) => now >= s.startMs - CHECKIN_EARLY_MS && now <= s.endMs;
+
+// No 0/O, 1/I/L: easy to read off a screen and type.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const CHECKIN_CODE_LENGTH = 8;
+
+/** The code the organiser shows at the door (in a QR code and as text). */
+export function newCheckinCode(rand = Math.random) {
+  let c = '';
+  for (let i = 0; i < CHECKIN_CODE_LENGTH; i++) c += CODE_ALPHABET[Math.floor(rand() * CODE_ALPHABET.length)];
+  return c;
+}
+export const formatCheckinCode = (c) => `${c.slice(0, 4)}-${c.slice(4)}`;
+
+/** Typed code ("abcd 2345", "ABCD-2345") → "ABCD2345", or null. */
+export function normalizeCheckinCode(input) {
+  const c = String(input ?? '')
+    .toUpperCase()
+    .replace(/[\s-]/g, '');
+  if (c.length !== CHECKIN_CODE_LENGTH || [...c].some((ch) => !CODE_ALPHABET.includes(ch))) return null;
+  return c;
+}
+
+/** '#checkin/2026-10-20_wed-mandela/ABCD2345' → { session, code }, or null. */
+export function parseCheckinHash(hash) {
+  const m = String(hash ?? '').match(/^#checkin\/([0-9]{4}-[0-9]{2}-[0-9]{2}_[a-z0-9-]{1,40})\/([A-Za-z0-9-]+)$/);
+  const code = m && normalizeCheckinCode(m[2]);
+  return code ? { session: m[1], code } : null;
+}
+
+/**
+ * A session's register. entries: { id: { present, how, at, name?, enc?, walkIn? } }
+ * where id is a booking id, or a walk-in's own id.
+ * Returns { present: Set of booking ids, walkIns: [{ id, name, enc, at }], taken }.
+ */
+export function attendanceOf(entries) {
+  const present = new Set();
+  const walkIns = [];
+  const list = Object.entries(entries ?? {}).filter(([, e]) => e && typeof e === 'object');
+  for (const [id, e] of list) {
+    if (!e.present) continue;
+    if (e.walkIn) walkIns.push({ id, name: cleanName(e.name) || '?', enc: e.enc ?? null, at: e.at ?? 0 });
+    else present.add(id);
+  }
+  walkIns.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+  return { present, walkIns, taken: list.length > 0 };
+}
+
+/**
+ * Attendance over a period, counting only sessions where a register was taken
+ * and that weren't cancelled. A no-show is someone with a place (not on the
+ * waitlist) who wasn't checked in.
+ *   sessions    { sessionKey: bookings }
+ *   attendance  { sessionKey: entries }
+ *   closures    { sessionKey: entries }
+ *   capacityOf  sessionKey → places
+ *   personOf    booking or walk-in → { key, name } (who someone is across sessions)
+ *   from, to    dates ('YYYY-MM-DD'), inclusive
+ * Returns { sessions, places, attended, noShows, walkIns, people: [{ key, name, booked, attended, noShows, walkIns }] }
+ */
+export function attendanceReport({
+  sessions = {},
+  attendance = {},
+  closures = {},
+  capacityOf = () => CAPACITY,
+  personOf = (b) => ({ key: cleanName(b.name).toLowerCase(), name: cleanName(b.name) }),
+  from = '0000-00-00',
+  to = '9999-99-99',
+}) {
+  const people = new Map();
+  const person = (b) => {
+    const p = personOf(b);
+    if (!people.has(p.key))
+      people.set(p.key, { key: p.key, name: p.name, booked: 0, attended: 0, noShows: 0, walkIns: 0 });
+    return people.get(p.key);
+  };
+  const totals = { sessions: 0, places: 0, attended: 0, noShows: 0, walkIns: 0 };
+  for (const [key, entries] of Object.entries(attendance)) {
+    const date = key.slice(0, 10);
+    if (date < from || date > to || closureOf(closures[key])) continue;
+    const reg = attendanceOf(entries);
+    if (!reg.taken) continue;
+    totals.sessions += 1;
+    const r = roster(sessions[key], capacityOf(key));
+    for (const b of [...r.booked, ...r.waitlist]) {
+      const here = reg.present.has(b.id);
+      const hasPlace = r.booked.includes(b);
+      if (!here && !hasPlace) continue; // on the waitlist and didn't come: not a no-show
+      const p = person(b);
+      if (hasPlace) {
+        p.booked += 1;
+        totals.places += 1;
+      }
+      if (here) {
+        p.attended += 1;
+        totals.attended += 1;
+      } else {
+        p.noShows += 1;
+        totals.noShows += 1;
+      }
+    }
+    for (const w of reg.walkIns) {
+      const p = person(w);
+      p.attended += 1;
+      p.walkIns += 1;
+      totals.attended += 1;
+      totals.walkIns += 1;
+    }
+  }
+  const list = [...people.values()].sort(
+    (a, b) => b.noShows - a.noShows || b.attended - a.attended || a.name.localeCompare(b.name),
+  );
+  return { ...totals, people: list };
 }

@@ -84,7 +84,7 @@ function denied(res) {
 function readable(p) {
   if (p[0] === 'poules') return p.length >= 2 && CODE.test(p[1]);
   if (p[0] === 'booking')
-    return ['sessions', 'closures', 'publicKey', 'privateKey', 'config', 'lessons'].includes(p[1]);
+    return ['sessions', 'closures', 'publicKey', 'privateKey', 'config', 'lessons', 'attendance'].includes(p[1]);
   return false;
 }
 
@@ -184,6 +184,44 @@ function allowed(p, v, upd) {
         typeof op === 'string' &&
         getAt(['booking', 'adminOps', 'cfg', op]) === null &&
         upd.has(`booking/adminOps/cfg/${op}`)
+      );
+    }
+    // Attendance: the organiser (with a one-time op, like config) or the member
+    // themselves (booking key + the check-in code shown at the door).
+    if (a === 'adminOps' && (b === 'ck' ? p.length === 5 : b === 'att' && p.length === 4))
+      return getAt(p) === null && isAdmin(v);
+    if (a === 'checkin' && p.length === 4) {
+      const op = upd.get(`booking/adminOps/ck/${b}/${c}`);
+      return getAt(p) === null && v === true && SESSION.test(b) && /^[A-HJKMNP-Z2-9]{8}$/.test(c) && isAdmin(op);
+    }
+    if (a === 'attendProofs' && p.length === 4)
+      return (
+        getAt(['booking', 'sessions', b, c]) !== null &&
+        typeof v?.key === 'string' &&
+        typeof v?.code === 'string' &&
+        v.key.length <= 64 &&
+        v.code.length <= 16
+      );
+    if (a === 'attendance' && p.length === 4) {
+      if (!SESSION.test(b) || c.length > 40 || !v) return false;
+      const valid =
+        typeof v.present === 'boolean' &&
+        Math.abs(v.at - Date.now()) < 5000 &&
+        (v.name == null || (typeof v.name === 'string' && v.name.length >= 2 && v.name.length <= 60)) &&
+        (v.walkIn == null || typeof v.walkIn === 'boolean');
+      if (!valid) return false;
+      if (v.how === 'org')
+        return (
+          typeof v.op === 'string' &&
+          getAt(['booking', 'adminOps', 'att', v.op]) === null &&
+          typeof upd.get(`booking/adminOps/att/${v.op}`) === 'string'
+        );
+      if (v.how !== 'self' || v.present !== true || getAt(p) !== null) return false;
+      const proof = fresh(`booking/attendProofs/${b}/${c}`);
+      return (
+        typeof proof?.key === 'string' &&
+        getAt(['booking', 'keys', b, c, proof.key]) === true &&
+        getAt(['booking', 'checkin', b, proof.code]) === true
       );
     }
     if (a === 'closures' && p.length === 4) {
