@@ -46,6 +46,9 @@ const P = {
     '<path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 6H4v1.5a3.5 3.5 0 0 0 3.5 3.5M17 6h3v1.5a3.5 3.5 0 0 1-3.5 3.5M12 14v3.5M8.5 20.5h7M10 17.5h4"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/><circle cx="12" cy="12" r="6.8"/>',
   bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6Z" class="f"/>',
+  // Foil, épée and sabre crossed (the Fence tab).
+  fencing:
+    '<g stroke-width="1.5"><path d="M2.5 2.5 17.6 17.6M21.5 2.5 6.4 17.6M12 1.5v16.3"/><path d="m16.2 19.2 3-3M7.8 19.2l-3-3"/><path d="m18.6 18.6 2.6 2.6M5.4 18.6l-2.6 2.6"/><path d="M12 20.4v2.3"/></g><path d="M9.7 17.9h4.6a2.3 2.5 0 0 1-4.6 0Z" class="f"/>',
   calendar:
     '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h2M12 14h2M8 17h2"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6" class="f"/>',

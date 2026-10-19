@@ -79,6 +79,8 @@ try {
   await member.waitForFunction(() => document.body.dataset.main === 'about');
   assert.deepEqual(await current(member), { main: 'about', mode: 'about', tab: 'about' });
   assert.equal(await member.locator('.modebar:not([hidden])').count(), 0, 'no mode row on About');
+  const barH = await member.evaluate(() => document.querySelector('.bottom-bar').getBoundingClientRect().height);
+  assert.ok(barH <= 60, `the bottom bar is just the tab bar on About (${barH}px)`);
   const links = await member.locator('.linktree .lt-btn b').allTextContents();
   assert.deepEqual(links.slice(0, 2), ['Book Training', 'Students’ Union Page']);
   assert.equal(

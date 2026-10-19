@@ -1,6 +1,8 @@
-// Tiny static file server for local development: `npm start`.
-// Serves ./app on http://localhost:8080 (PORT env to change). No dependencies.
+// Local development server: `npm start`. Like the live site, it serves ./app
+// and the club database at /db (kept in memory). http://localhost:8080 (PORT
+// env to change). No dependencies.
 import { createServer } from 'node:http';
+import { createDb, handleDb } from './db-http.js';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { networkInterfaces } from 'node:os';
@@ -47,9 +49,13 @@ function headersFor(path) {
   return out;
 }
 
+const db = createDb();
+
 const server = createServer(async (req, res) => {
+  const pathname = new URL(req.url, 'http://x').pathname;
+  if (pathname === '/db' || pathname.startsWith('/db/')) return handleDb(db, req, res, pathname.slice(3) || '/');
   try {
-    let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let path = decodeURIComponent(pathname);
     path = normalize(path).replace(/^(\.\.[/\\])+/, '');
     let file = join(root, path);
     if (!file.startsWith(root)) throw new Error('forbidden');

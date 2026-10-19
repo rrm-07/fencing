@@ -6,11 +6,15 @@
 import { DurableObject } from 'cloudflare:workers';
 import { Database, leaves, parseUrl, MAX_BODY } from './db.js';
 
+// The database's name. A new name is a fresh, empty database (the first one,
+// 'club', was set up while phones were wrongly caching its replies).
+const DATABASE = 'club-2';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/db' || url.pathname.startsWith('/db/'))
-      return env.DB.get(env.DB.idFromName('club')).fetch(request);
+      return env.DB.get(env.DB.idFromName(DATABASE)).fetch(request);
     return env.ASSETS.fetch(request);
   },
 };

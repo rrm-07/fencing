@@ -263,32 +263,28 @@ p {
   box-shadow: 0 -0.5px 0 var(--sep);
 }
 .modebar-slot {
-  padding: 0 12px;
+  padding: 0 16px;
 }
-/* 56px tall to tap, drawn as a slimmer pill */
+/* A slim switch: most of the screen is for the content. */
 .modebar {
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--n), 1fr);
-  height: var(--tap);
-  padding: 0 3px;
-}
-.modebar::before {
-  content: '';
-  position: absolute;
-  inset: 8px 0 6px;
-  border-radius: 13px;
+  height: 32px;
+  margin: 6px 0 0;
+  padding: 0 2px;
+  border-radius: 10px;
   background: var(--fill-3);
 }
 .mode-thumb {
   position: absolute;
-  top: 11px;
-  bottom: 9px;
-  left: 3px;
-  width: calc((100% - 6px) / var(--n));
-  border-radius: 9px;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--n));
+  border-radius: 8px;
   background: var(--thumb);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   transform: translateX(calc(var(--i, 0) * 100%));
   transition: transform 0.38s cubic-bezier(0.34, 1.36, 0.64, 1);
 }
@@ -299,7 +295,7 @@ p {
   background: none;
   color: var(--label-2);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   touch-action: manipulation;
   transition: color 0.2s ease;
@@ -314,10 +310,10 @@ p {
 }
 .tab-indicator {
   position: absolute;
-  top: 6px;
+  top: 5px;
   left: 0;
   width: calc(100% / 3);
-  height: 32px;
+  height: 28px;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -325,21 +321,21 @@ p {
   transition: transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 .tab-indicator span {
-  width: 64px;
+  width: 58px;
   height: 100%;
-  border-radius: 16px;
+  border-radius: 14px;
   background: color-mix(in srgb, var(--blue) 18%, transparent);
 }
 .tabbar button {
   position: relative;
   flex: 1;
-  min-height: 58px;
+  min-height: 50px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding-top: 6px;
+  gap: 1px;
+  padding-top: 5px;
   background: none;
   border: 0;
   color: var(--gray);
@@ -353,11 +349,11 @@ p {
 .tab-icon {
   display: grid;
   place-items: center;
-  height: 32px;
+  height: 28px;
 }
 .tabbar .icon {
-  width: 26px;
-  height: 26px;
+  width: 25px;
+  height: 25px;
 }
 .tabbar button[aria-current='true'] {
   color: var(--blue);
@@ -372,33 +368,33 @@ p {
 /* ---------- about ---------- */
 
 .about {
-  padding-top: calc(12px + var(--safe-top));
+  padding-top: var(--safe-top);
 }
 .about-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 6px;
-  margin: 12px 0 20px;
+  gap: 4px;
+  margin: 10px 0 16px;
 }
 .crest {
   display: grid;
   place-items: center;
-  width: 84px;
-  height: 84px;
-  border-radius: 26px;
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
   background: linear-gradient(145deg, #4b2a8c, #1d1145);
   color: #fff;
-  box-shadow: 0 10px 30px rgba(75, 42, 140, 0.35);
+  box-shadow: 0 8px 22px rgba(75, 42, 140, 0.35);
 }
 .crest .icon {
-  width: 46px;
-  height: 46px;
+  width: 38px;
+  height: 38px;
 }
 .about-name {
-  margin-top: 8px;
-  font-size: 30px;
+  margin-top: 4px;
+  font-size: 26px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }

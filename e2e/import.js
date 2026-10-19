@@ -82,7 +82,7 @@ try {
   log('the organiser unlocked with their existing passphrase');
 
   if (id) {
-    await page.locator('.modebar [data-tab="book"]').click();
+    await page.locator('[aria-label="Back to sessions"]').click();
     await page
       .locator('.session-row')
       .filter({ hasText: /1 waiting|29 left/ })

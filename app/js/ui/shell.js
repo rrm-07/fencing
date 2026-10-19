@@ -8,7 +8,7 @@ export const TABS = [
   {
     id: 'fence',
     label: 'Fence',
-    icon: 'swords',
+    icon: 'fencing',
     modes: [
       ['bout', 'Scorer'],
       ['poules', 'Poules'],
@@ -19,10 +19,7 @@ export const TABS = [
     id: 'book',
     label: 'Book',
     icon: 'calendar',
-    modes: [
-      ['book', 'Sessions'],
-      ['admin', 'Admin'],
-    ],
+    modes: null, // Admin is a button at the top of Book
   },
   { id: 'about', label: 'About', icon: 'info', modes: null },
 ];
@@ -121,7 +118,7 @@ export function mountShell({ onTab, onMode }) {
         el.style.setProperty('--i', k);
         el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === mode)));
       }
-      slot.classList.toggle('empty', !modebars.has(tab));
+      slot.classList.toggle('no-modes', !modebars.has(tab));
       current = tab;
     },
   };

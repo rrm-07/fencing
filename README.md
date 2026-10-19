@@ -2,10 +2,10 @@
 
 The UCL Fencing club app, at **https://uclfencing.com**. It's a mobile-first web app that installs to the home screen and runs full screen like a native app (About → Install the App). You can use it one-handed at the side of the piste, and scoring works fully offline.
 
-Three tabs sit at the bottom: **Fence**, **Book** and **About**. They have a sliding highlight, and screens slide in from the side they sit on. Above the tab bar, a second row switches modes:
+Three tabs sit at the bottom: **Fence**, **Book** and **About**. They have a sliding highlight, and screens slide in from the side they sit on. On the Fence tab, a slim switch above the tab bar changes mode:
 
 - **Fence:** Scorer · Poules · Teams. It remembers where you were in each.
-- **Book:** Sessions (book training, cancel, coach lessons, check in) · Admin (organisers unlock with the passphrase to reach every organiser tool).
+- **Book:** book training, cancel, coach lessons, check in. The lock at the top right opens **Admin**: organisers unlock it with the passphrase to reach every organiser tool.
 - **About:** the club page. It has a rotating photo album, links to the Students' Union page, WhatsApp, Instagram and TikTok, and an install button. Organisers edit the links and upload photos under Book → Admin → Club Page. Empty links are hidden.
 
 Under the hood: The design follows Apple's iOS conventions: system font with rounded numerals, Apple's system colours in dark and light (or automatic) appearance, grouped lists, sheets and action sheets. Every tap target is still at least 56px.

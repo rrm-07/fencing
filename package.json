@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node scripts/serve.js",
     "test": "node --test tests/*.test.js",
-    "e2e": "node e2e/run.js && node e2e/team.js && node e2e/share.js && node e2e/tableau.js && node e2e/book.js && node e2e/about.js && node e2e/import.js && node e2e/move.js",
+    "e2e": "node e2e/run.js && node e2e/team.js && node e2e/share.js && node e2e/tableau.js && node e2e/book.js && node e2e/about.js && node e2e/import.js && node e2e/move.js && node e2e/live.js",
     "mock-share": "node scripts/mock-share-server.js",
     "icons": "node scripts/make-icons.js",
     "deploy": "npx wrangler@4 deploy",

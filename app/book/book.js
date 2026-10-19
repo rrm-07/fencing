@@ -166,7 +166,12 @@ function render() {
     { class: 'navbar large' },
     h('div', { class: 'nav-l' }),
     h('div', { class: 'nav-title' }, CLUB.title),
-    h('div', { class: 'nav-r' }, iconButton('share', shareLink, 'Share booking link')),
+    h(
+      'div',
+      { class: 'nav-r' },
+      iconButton('share', shareLink, 'Share booking link'),
+      iconButton('lock', () => (location.hash = '#book/admin'), 'Admin', S.org ? 'org-on' : ''),
+    ),
   );
   const body = h(
     'div',
@@ -683,7 +688,13 @@ function renderAdmin() {
   const nav = h(
     'header',
     { class: 'navbar large' },
-    h('div', { class: 'nav-l' }),
+    h(
+      'div',
+      { class: 'nav-l' },
+      button([icon('chevronLeft'), 'Sessions'], () => (location.hash = '#book'), 'nav-back', {
+        'aria-label': 'Back to sessions',
+      }),
+    ),
     h('div', { class: 'nav-title' }, 'Admin'),
     h('div', { class: 'nav-r' }),
   );

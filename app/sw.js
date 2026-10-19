@@ -1,6 +1,6 @@
 // Service worker: precache the whole app so it works fully offline.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'piste-v2.1.0';
+const VERSION = 'piste-v2.2.0';
 const ASSETS = [
   './',
   './index.html',
@@ -79,6 +79,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // The club database is always live: never answer it from the cache.
+  if (url.pathname === '/db' || url.pathname.startsWith('/db/')) return;
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then(
       (hit) =>

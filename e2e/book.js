@@ -43,8 +43,8 @@ async function phone(name) {
 let step = 0;
 const log = (msg) => console.log(`  ${String(++step).padStart(2)}. ${msg}`);
 const settle = (page) => page.waitForTimeout(500);
-const toAdmin = async (page) => (await page.locator('.modebar [data-tab="admin"]').click(), settle(page));
-const toSessions = async (page) => (await page.locator('.modebar [data-tab="book"]').click(), settle(page));
+const toAdmin = async (page) => (await page.locator('#book [aria-label="Admin"]').click(), settle(page));
+const toSessions = async (page) => (await page.locator('[aria-label="Back to sessions"]').click(), settle(page));
 const adminButton = (page, name) => page.locator('#view-admin').getByRole('button', { name }).click();
 const dlg = (page, name) => page.locator('.modal-wrap.open').getByRole('button', { name, exact: true }).click();
 const rest = async (method, path, body) => {

@@ -400,7 +400,8 @@ try {
 
   const small = await page.evaluate(() =>
     [...document.querySelectorAll('button')]
-      .filter((b) => b.offsetParent && !b.closest('.modal-wrap'))
+      // The tab bar and the slim mode switch are kept compact on purpose (iOS-sized).
+      .filter((b) => b.offsetParent && !b.closest('.modal-wrap, .tabbar, .modebar'))
       .map((b) => ({
         t: b.textContent.trim() || b.getAttribute('aria-label'),
         h: b.getBoundingClientRect().height,

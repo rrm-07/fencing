@@ -128,7 +128,7 @@ function album() {
         h(
           'figure',
           { class: `slide placeholder tint-${p.tint}` },
-          h('div', { class: 'ph-art' }, icon('swords')),
+          h('div', { class: 'ph-art' }, icon('fencing')),
           h('figcaption', {}, h('b', {}, p.title), h('span', {}, p.sub)),
         ),
       );
@@ -189,7 +189,7 @@ export function mountAboutView(root) {
       h(
         'header',
         { class: 'about-hero' },
-        h('div', { class: 'crest', 'aria-hidden': 'true' }, icon('swords')),
+        h('div', { class: 'crest', 'aria-hidden': 'true' }, icon('fencing')),
         h('h1', { class: 'about-name' }, CLUB_PAGE.name),
         h('p', { class: 'about-tagline' }, tagline),
       ),
