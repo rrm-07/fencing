@@ -87,7 +87,8 @@ test('closures: the latest entry wins', () => {
 
 test('booking details are checked', () => {
   assert.equal(validateBooking({ name: 'Ada Lovelace', member: 'UCL12345' }), null);
-  assert.match(validateBooking({ name: 'A', member: '123' }), /full name/);
+  assert.match(validateBooking({ name: 'A', member: '123' }), /your name/);
+  assert.match(validateBooking({ name: 'Ada', member: '' }), /enter your membership number/);
   assert.match(validateBooking({ name: 'Ada', member: '12' }), /membership/);
   assert.match(validateBooking({ name: 'Ada', member: 'abc 123' }), /membership/);
   const r = roster({ x: { name: 'Ada  Lovelace', createdAt: 1 } });

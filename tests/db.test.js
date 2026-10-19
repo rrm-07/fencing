@@ -201,6 +201,14 @@ test('club page: organiser only, https links, JPEG photos', () => {
     db.write(
       'PATCH',
       [],
+      { 'booking/adminOps/cfg/o5': ADMIN, 'club/about': { feedback: 'http://forms.example', op: 'o5' } },
+      NOW,
+    ),
+  );
+  no(
+    db.write(
+      'PATCH',
+      [],
       { 'booking/adminOps/cfg/o3': ADMIN, 'club/photos/p1': { src: 'data:image/svg+xml,<svg/>', op: 'o3' } },
       NOW,
     ),

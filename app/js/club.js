@@ -8,9 +8,10 @@ export const CLUB_PAGE = {
   links: {
     su: 'https://studentsunionucl.org/clubs-societies/fencing-club',
     whatsapp: '',
-    instagram: '',
+    instagram: 'https://instagram.com/uclfencing',
     tiktok: '',
     email: '',
+    feedback: 'https://docs.google.com/forms/d/e/1FAIpQLSdm0j9A3kn6m50xe7fIsthSsNURZODnhUeNqBU3I_PQtwmFJQ/viewform',
   },
 };
 
@@ -21,4 +22,5 @@ export const LINKS = [
   ['instagram', 'Instagram', 'instagram', 'pink', 'Photos and news'],
   ['tiktok', 'TikTok', 'tiktok', 'black', 'Clips from training and competitions'],
   ['email', 'Email the Committee', 'mail', 'blue', null],
+  ['feedback', 'Feedback & Bug Reports', 'feedback', 'orange', 'Tell us what to fix or improve in the app'],
 ];

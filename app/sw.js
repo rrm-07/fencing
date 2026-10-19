@@ -1,6 +1,6 @@
 // Service worker: precache the whole app so it works fully offline.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'piste-v2.2.0';
+const VERSION = 'piste-v2.3.0';
 const ASSETS = [
   './',
   './index.html',
@@ -32,6 +32,7 @@ const ASSETS = [
   './js/ui/qr.js',
   './js/ui/shell.js',
   './js/ui/aboutView.js',
+  './about/crest.png',
   './js/club.js',
   './book/book.js',
   './book/book.css',

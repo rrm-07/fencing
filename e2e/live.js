@@ -96,8 +96,8 @@ try {
     .click();
   await page.locator('.modal-wrap.open').getByRole('button', { name: 'Book a Place' }).click();
   await page.waitForTimeout(400);
-  await page.locator('input[aria-label="Full name"]').fill('Live Tester');
-  await page.locator('input[aria-label="Membership or student number"]').fill('UCL4242');
+  await page.locator('input[aria-label="Name"]').fill('Live Tester');
+  await page.locator('input[aria-label="Membership number"]').fill('UCL4242');
   await page.locator('.modal-wrap.open').getByRole('button', { name: 'Book My Place' }).click();
   await page.waitForFunction(() =>
     document.querySelector('.modal-wrap.open .sheet-status')?.textContent.includes('You’re booked'),

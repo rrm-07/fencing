@@ -92,8 +92,8 @@ try {
   await alice.screenshot({ path: `${shots}b3-session.png` });
   await dlg(alice, 'Book a Place');
   await settle(alice);
-  await alice.locator('input[aria-label="Full name"]').fill('Alice Martin');
-  await alice.locator('input[aria-label="Membership or student number"]').fill('ucl1234');
+  await alice.locator('input[aria-label="Name"]').fill('Alice Martin');
+  await alice.locator('input[aria-label="Membership number"]').fill('ucl1234');
   await alice.screenshot({ path: `${shots}b4-form.png` });
   await dlg(alice, 'Book My Place');
   await alice.waitForFunction(() =>
@@ -126,8 +126,8 @@ try {
   await settle(bob);
   await dlg(bob, 'Join the Waitlist');
   await settle(bob);
-  await bob.locator('input[aria-label="Full name"]').fill('Bob Chen');
-  await bob.locator('input[aria-label="Membership or student number"]').fill('UCL5678');
+  await bob.locator('input[aria-label="Name"]').fill('Bob Chen');
+  await bob.locator('input[aria-label="Membership number"]').fill('UCL5678');
   await dlg(bob, 'Add Me to the Waitlist');
   await bob.waitForFunction(() =>
     /#1 on the waitlist/.test(document.querySelector('.modal-wrap.open .sheet-status')?.textContent),
@@ -446,8 +446,8 @@ try {
   assert.match(await top(carol).textContent(), /No booking on this phone/);
   await dlg(carol, 'Book & Check In');
   await settle(carol);
-  await carol.locator('input[aria-label="Full name"]').fill('Carol Diaz');
-  await carol.locator('input[aria-label="Membership or student number"]').fill('UCL9999');
+  await carol.locator('input[aria-label="Name"]').fill('Carol Diaz');
+  await carol.locator('input[aria-label="Membership number"]').fill('UCL9999');
   await dlg(carol, 'Book My Place');
   await carol.waitForSelector('.checked-alert', { timeout: 10000 });
   log('Carol scanned without a booking: booked and checked in in one go');

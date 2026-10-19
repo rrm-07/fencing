@@ -328,3 +328,9 @@
 .round-tabs {
   margin: 0 0 18px;
 }
+
+.field-label {
+  width: 128px;
+  flex: none;
+  font-weight: 600;
+}

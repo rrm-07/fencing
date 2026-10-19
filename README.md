@@ -6,7 +6,7 @@ Three tabs sit at the bottom: **Fence**, **Book** and **About**. They have a sli
 
 - **Fence:** Scorer · Poules · Teams. It remembers where you were in each.
 - **Book:** book training, cancel, coach lessons, check in. The lock at the top right opens **Admin**: organisers unlock it with the passphrase to reach every organiser tool.
-- **About:** the club page. It has a rotating photo album, links to the Students' Union page, WhatsApp, Instagram and TikTok, and an install button. Organisers edit the links and upload photos under Book → Admin → Club Page. Empty links are hidden.
+- **About:** the club page, headed by the club crest. It has a rotating photo album, links to the Students' Union page, WhatsApp, Instagram and TikTok, and an install button. Organisers edit the links and upload photos under Book → Admin → Club Page. Empty links are hidden.
 
 Under the hood: The design follows Apple's iOS conventions: system font with rounded numerals, Apple's system colours in dark and light (or automatic) appearance, grouped lists, sheets and action sheets. Every tap target is still at least 56px.
 
@@ -147,7 +147,7 @@ The **Book** tab: share **`https://uclfencing.com/#book`** with members. Old `�
   Bookings open two weeks ahead, in UK time (clock changes included).
 
 - **Places:** 30 per session. Anyone after that joins the waitlist, and when someone cancels, the first person waiting moves up automatically.
-- **Booking:** members enter their name and membership/student number. Names are visible to everyone with the link. The number is encrypted on the member's phone with the organiser's public key, so only the organiser can read it. Members cancel their own booking from the phone they booked on (a secret key kept there proves it's theirs); nobody can cancel anyone else's.
+- **Booking:** members must enter their name and then their membership number (both required). Names are visible to everyone with the link. The number is encrypted on the member's phone with the organiser's public key, so only the organiser can read it. Members cancel their own booking from the phone they booked on (a secret key kept there proves it's theirs); nobody can cancel anyone else's.
 - **Organiser:** open **Book → Admin** (or `…/#book/admin`) and enter the passphrase.
   - The first time, choose a passphrase (at least 10 characters). It can't be recovered or changed, so keep it safe.
   - Unlocking with it on any device shows membership numbers and lets you remove a booking (press and hold), cancel or reopen a session with a reason, and export a CSV register.

@@ -198,10 +198,13 @@ export function cleanName(s) {
 /** Check booking details. Returns an error message or null. */
 export function validateBooking({ name, member }) {
   const n = cleanName(name);
-  if (n.length < 2) return 'Please enter your full name';
+  if (n.length < 2) return 'Please enter your name';
   if (n.length > 60) return 'That name is too long';
   const m = String(member ?? '').trim();
-  if (!/^[A-Za-z0-9-]{3,20}$/.test(m)) return 'Enter your membership or student number (letters and numbers only)';
+  if (!/^[A-Za-z0-9-]{3,20}$/.test(m))
+    return m
+      ? 'That membership number doesn’t look right (letters and numbers only)'
+      : 'Please enter your membership number';
   return null;
 }
 

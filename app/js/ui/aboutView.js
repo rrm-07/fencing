@@ -189,7 +189,7 @@ export function mountAboutView(root) {
       h(
         'header',
         { class: 'about-hero' },
-        h('div', { class: 'crest', 'aria-hidden': 'true' }, icon('fencing')),
+        h('img', { class: 'crest', src: 'about/crest.png', alt: 'UCL Fencing crest', width: 480, height: 385 }),
         h('h1', { class: 'about-name' }, CLUB_PAGE.name),
         h('p', { class: 'about-tagline' }, tagline),
       ),
@@ -320,7 +320,7 @@ export async function editAboutSheet(secret) {
         {
           header: 'Links',
           footer:
-            'Paste each full link. Empty links are hidden. Examples: https://chat.whatsapp.com/…, https://instagram.com/…, https://tiktok.com/@…',
+            'Paste each full link. Empty links are hidden. Examples: https://chat.whatsapp.com/…, https://instagram.com/…, https://tiktok.com/@…, https://docs.google.com/forms/…',
         },
         ...LINKS.map(([k, label]) =>
           input(k, k === 'email' ? 'Email address' : `${label} link`, links[k], k === 'email' ? 'email' : 'url'),

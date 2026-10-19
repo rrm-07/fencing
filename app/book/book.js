@@ -568,22 +568,33 @@ function bookSheet(s) {
     const name = h('input', {
       class: 'input',
       value: me.name ?? '',
-      placeholder: 'Full name',
+      placeholder: 'First and last name',
       autocomplete: 'name',
       maxlength: 60,
-      'aria-label': 'Full name',
+      required: true,
+      'aria-label': 'Name',
     });
     const member = h('input', {
       class: 'input',
       value: me.member ?? '',
-      placeholder: 'Membership / student no.',
+      placeholder: 'Your membership number',
       autocapitalize: 'characters',
       autocomplete: 'off',
       maxlength: 20,
-      'aria-label': 'Membership or student number',
+      required: true,
+      'aria-label': 'Membership number',
     });
     const st = stateOf(s);
     const submit = button(st.left ? 'Book My Place' : 'Add Me to the Waitlist', go, 'btn-filled btn-block btn-large');
+    // Both are needed: the button wakes up once there's a name and a number.
+    const ready = () => (submit.disabled = !(cleanName(name.value) && member.value.trim()));
+    name.addEventListener('input', ready);
+    member.addEventListener('input', ready);
+    ready();
+    name.id = 'book-name';
+    member.id = 'book-member';
+    const field = (label, input) =>
+      row({ lead: h('label', { class: 'field-label', for: input.id }, label), title: input, cls: 'row-inline' });
     async function go() {
       const details = { name: cleanName(name.value), member: member.value.trim().toUpperCase() };
       const err = validateBooking(details);
@@ -621,10 +632,10 @@ function bookSheet(s) {
         {
           header: 'Your details',
           footer:
-            'Your name is shown on the list. Your number is encrypted on this phone so only the organiser can read it. Both are remembered here for next time.',
+            'Both are required. Your name is shown on the list; your membership number is encrypted on this phone so only the organiser can read it. Both are remembered here for next time.',
         },
-        row({ title: name, cls: 'row-inline' }),
-        row({ title: member, cls: 'row-inline' }),
+        field('Name', name),
+        field('Membership No.', member),
       ),
       v.note && h('p', { class: 'sheet-status warn' }, `${v.note}.`),
       submit,

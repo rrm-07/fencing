@@ -87,6 +87,18 @@ try {
     await member.locator('[data-link="su"]').getAttribute('href'),
     'https://studentsunionucl.org/clubs-societies/fencing-club',
   );
+  assert.equal(
+    await member.locator('[data-link="instagram"]').getAttribute('href'),
+    'https://instagram.com/uclfencing',
+  );
+  assert.match(
+    await member.locator('[data-link="feedback"]').getAttribute('href'),
+    /^https:\/\/docs\.google\.com\/forms\//,
+  );
+  assert.ok(
+    await member.locator('img.crest').evaluate((img) => img.complete && img.naturalWidth > 0),
+    'the club crest shows',
+  );
   log('three tabs: Fence remembers Teams, Book shows sessions, About has the club page');
 
   // The album rotates on its own.

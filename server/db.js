@@ -130,7 +130,7 @@ export function allowed(p, before, after, now) {
     if (a === 'about' && p.length === 2)
       return (
         opOk &&
-        ['su', 'whatsapp', 'instagram', 'tiktok'].every(link) &&
+        ['su', 'whatsapp', 'instagram', 'tiktok', 'feedback'].every(link) &&
         (v.email == null || strMax(v.email, 120)) &&
         (v.tagline == null || strMax(v.tagline, 120))
       );
