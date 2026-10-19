@@ -213,24 +213,39 @@ export function alreadyBooked(r, name) {
 
 /** Apply a Firebase streaming event ({ path, data }) to a plain object tree. */
 export function applyEvent(tree, kind, path, data) {
-  const parts = String(path ?? '/')
-    .split('/')
-    .filter(Boolean);
+  const split = (p) =>
+    String(p ?? '')
+      .split('/')
+      .filter(Boolean);
+  const base = split(path);
+  if (kind === 'put' && !base.length) return data && typeof data === 'object' ? structuredClone(data) : {};
   const root = structuredClone(tree ?? {});
-  if (!parts.length) {
-    if (kind === 'put') return data ?? {};
-    return { ...root, ...(data ?? {}) };
+  // A patch sets each of its keys, and a key can be a deeper path
+  // ("2026-10-21_wed-clfc/b123") when several places were written at once.
+  const writes =
+    kind === 'patch' ? Object.entries(data ?? {}).map(([k, v]) => [[...base, ...split(k)], v]) : [[base, data]];
+  for (const [parts, value] of writes) {
+    if (!parts.length) continue;
+    let node = root;
+    for (const p of parts.slice(0, -1)) {
+      if (!node[p] || typeof node[p] !== 'object') node[p] = {};
+      node = node[p];
+    }
+    if (value == null) delete node[parts.at(-1)];
+    else node[parts.at(-1)] = structuredClone(value);
   }
-  let node = root;
-  for (const p of parts.slice(0, -1)) {
-    if (!node[p] || typeof node[p] !== 'object') node[p] = {};
-    node = node[p];
+  return prune(root);
+}
+
+/** Drop objects left empty by deletions (Firebase never keeps empty nodes). */
+function prune(node) {
+  for (const [k, v] of Object.entries(node)) {
+    if (v && typeof v === 'object') {
+      prune(v);
+      if (!Object.keys(v).length) delete node[k];
+    }
   }
-  const last = parts.at(-1);
-  if (kind === 'patch') node[last] = { ...(node[last] ?? {}), ...(data ?? {}) };
-  else if (data == null) delete node[last];
-  else node[last] = data;
-  return root;
+  return node;
 }
 
 /** A short, sortable, unguessable id for a new booking. */

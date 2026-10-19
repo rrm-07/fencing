@@ -106,6 +106,26 @@ test('live updates are applied to the local copy', () => {
   assert.deepEqual(Object.keys(t.s2).sort(), ['c', 'd']);
 });
 
+test('live updates: multi-path patches from the real server', () => {
+  // What Firebase streams to a watcher of booking/sessions after a root PATCH.
+  let t = applyEvent({}, 'put', '/', null);
+  assert.deepEqual(t, {});
+  t = applyEvent(t, 'patch', '/', { '2026-10-19_mon-clfc': { b1: { name: 'M 1' } } });
+  t = applyEvent(t, 'patch', '/', { '2026-10-19_mon-clfc/b2': { name: 'M 2' } });
+  t = applyEvent(t, 'patch', '/', {
+    '2026-10-19_mon-clfc/b3': { name: 'M 3' },
+    '2026-10-21_wed-clfc/b9': { name: 'X' },
+  });
+  assert.deepEqual(Object.keys(t['2026-10-19_mon-clfc']).sort(), ['b1', 'b2', 'b3']);
+  assert.equal(t['2026-10-21_wed-clfc'].b9.name, 'X');
+  // a cancellation: the booking set to null; the emptied session disappears
+  t = applyEvent(t, 'patch', '/', { '2026-10-21_wed-clfc/b9': null });
+  assert.equal(t['2026-10-21_wed-clfc'], undefined);
+  // a patch replaces each key it names (not a deep merge)
+  t = applyEvent(t, 'patch', '/2026-10-19_mon-clfc', { b1: { name: 'M 1 renamed' } });
+  assert.deepEqual(t['2026-10-19_mon-clfc'].b1, { name: 'M 1 renamed' });
+});
+
 test('ids and CSV', () => {
   assert.match(newId(), /^b[0-9a-z]{16,}$/);
   assert.equal(sessionKey('2026-10-21', 'wed-clfc'), '2026-10-21_wed-clfc');

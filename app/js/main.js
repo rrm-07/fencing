@@ -1,17 +1,48 @@
 // Entry point: load data, mount views, route between tabs, register the
 // service worker.
 
-import { state, load, subscribe } from './state.js';
+import { state, load, subscribe, exportBackup, importBackup, boutInProgress } from './state.js';
+import { movedAway, homeReady, receiveMove, goHome, moveHome, localData, homeUrl } from './move.js';
 import { mountBoutView } from './ui/boutView.js';
 import { mountPoulesView, joinFlow } from './ui/pouleView.js';
 import { mountTeamsView } from './ui/teamView.js';
 import { startSync } from './sync.js';
 import { applyTheme } from './ui/settings.js';
 import { setHapticsEnabled, vibrate } from './ui/device.js';
-import { closeAllModals, clearToast, setHaptic, toast, button } from './ui/dom.js';
+import { closeAllModals, clearToast, setHaptic, toast, button, confirmDialog } from './ui/dom.js';
+
+const MOVED = 'piste:moved'; // on an old address: what has been moved ('all' | 'book')
 
 async function boot() {
+  // Arriving at the new address with data from the old one.
+  const moved = await receiveMove();
   await load();
+  if (moved?.backup) {
+    const counts = await importBackup(moved.backup);
+    const n = (counts.poules ?? 0) + (counts.matches ?? 0);
+    setTimeout(
+      () =>
+        toast(
+          n
+            ? `Moved ${n} poule${n === 1 ? '' : 's'} and match${n === 1 ? '' : 'es'} to this address`
+            : 'Moved to this address',
+          { ms: 4000 },
+        ),
+      600,
+    );
+  }
+  if (moved?.page === 'book') return location.replace(`book/${moved.hash ?? ''}`);
+  // On an old address: send people on (with their data if there is any).
+  if (movedAway() && (await homeReady())) {
+    const hasData =
+      state.poules.size ||
+      state.matches.size ||
+      state.roster.length ||
+      boutInProgress() ||
+      Object.keys(localData()).length;
+    if (!hasData || localStorage.getItem(MOVED) === 'all') return goHome('app');
+    setTimeout(() => offerMove(), 400);
+  }
   applyTheme();
   setHapticsEnabled(state.settings.haptics !== false);
   setHaptic(vibrate);
@@ -100,6 +131,24 @@ async function boot() {
   startSync();
   document.body.classList.add('ready');
   registerSW();
+}
+
+async function offerMove() {
+  const host = new URL(homeUrl()).host;
+  const ok = await confirmDialog({
+    title: 'Piste Has Moved',
+    message: `Piste now lives at ${host}. Move this phone’s poules, team matches and training bookings there? Shared poules keep working either way.`,
+    confirm: 'Move My Data',
+    cancel: 'Not Now',
+  });
+  if (!ok) return;
+  const backup = await exportBackup();
+  try {
+    localStorage.setItem(MOVED, 'all');
+  } catch {
+    /* storage blocked */
+  }
+  await moveHome({ page: 'app', backup: { ...backup, bouts: [] } }); // the free-bout log stays behind
 }
 
 function registerSW() {

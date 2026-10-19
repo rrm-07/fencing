@@ -1,0 +1,20 @@
+# Response headers for Cloudflare (Workers static assets or Pages). Also
+# applied by `npm start` (scripts/serve.js) so local testing matches.
+#
+# - no-cache: phones always check for a new version (cheap 304s). Offline use
+#   comes from the service worker, which keeps its own copy of the app.
+# - The Content-Security-Policy only allows this site's own files, plus the
+#   Firebase Realtime Database for sharing and bookings. If you switch to a
+#   database URL on another host, add it to connect-src.
+
+/*
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://*.firebasedatabase.app https://*.firebaseio.com; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+
+# The old address checks this before forwarding people here.
+/piste.json
+  Access-Control-Allow-Origin: *

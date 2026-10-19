@@ -10,6 +10,7 @@ import { chromium, devices } from 'playwright';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { startDb } from './db.js';
 
 const APP_PORT = 8097;
 const DB_PORT = 9097;
@@ -19,7 +20,8 @@ await mkdir(shots, { recursive: true });
 
 const env = (port) => ({ env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
 const app = spawn(process.execPath, ['scripts/serve.js'], env(APP_PORT));
-const db = spawn(process.execPath, ['scripts/mock-share-server.js'], env(DB_PORT));
+const db = await startDb(DB_PORT);
+console.log(`  (database: ${db.kind})`);
 await new Promise((r) => setTimeout(r, 700));
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
@@ -223,5 +225,5 @@ try {
 } finally {
   await browser.close();
   app.kill();
-  db.kill();
+  db.stop();
 }

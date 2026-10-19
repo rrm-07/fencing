@@ -49,6 +49,7 @@ import {
   attendanceReport,
 } from './core.js';
 import { qrSvg } from '../js/ui/qr.js';
+import { movedAway, homeReady, goHome, moveHome, localData, homeUrl } from '../js/move.js';
 import * as api from './api.js';
 import { createOrganiserKeys, unlockOrganiser, encryptFor, decryptWith, randomKey } from './crypto.js';
 
@@ -1642,7 +1643,38 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
 }
 
+/** On an old address: send members on to the new one, with their bookings. */
+async function leaveOldAddress() {
+  if (!movedAway() || !(await homeReady())) return false;
+  let moved = null;
+  try {
+    moved = localStorage.getItem('piste:moved'); // set raw by either page
+  } catch {
+    /* storage blocked */
+  }
+  if (!Object.keys(localData()).length || moved) {
+    goHome('book');
+    return true;
+  }
+  applyTheme();
+  const ok = await confirmDialog({
+    title: 'Bookings Have Moved',
+    message: `Training bookings are now at ${new URL(homeUrl()).host}. Your bookings on this phone come with you.`,
+    confirm: 'Continue',
+    cancel: 'Not Now',
+  });
+  if (!ok) return false;
+  try {
+    localStorage.setItem('piste:moved', 'book');
+  } catch {
+    /* storage blocked */
+  }
+  await moveHome({ page: 'book' });
+  return true;
+}
+
 async function start() {
+  if (await leaveOldAddress()) return;
   applyTheme();
   globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
   render();

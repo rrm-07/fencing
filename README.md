@@ -52,7 +52,53 @@ The end-to-end script works through the app like a referee would:
 
 Screenshots are saved to `e2e/screens/`.
 
-## Deploy to GitHub Pages
+Other suites cover team matches, shared poules, elimination tableaux, the training booking page (bookings, lessons, timetable editing, check-in, attendance) and moving to a new address.
+
+The sharing and booking suites run against a local mock of the Firebase database by default. To run them against the **official Firebase emulator, using the real `database.rules.json`**, download the emulator jar once (Java needed) and point the tests at it:
+
+```sh
+curl -o firebase-db-emulator.jar https://storage.googleapis.com/firebase-preview-drop/emulator/firebase-database-emulator-v4.11.2.jar
+FIREBASE_EMULATOR_JAR=$PWD/firebase-db-emulator.jar npm run e2e
+```
+
+## Deploy to Cloudflare (your own domain)
+
+Piste is plain static files in `app/`. [`wrangler.jsonc`](wrangler.jsonc) serves them with Cloudflare Workers (static assets only, no server code, free plan). [`app/_headers`](app/_headers) adds:
+
+- security headers, including a strict Content-Security-Policy that only allows the app's own files and the Firebase database;
+- `no-cache`, so phones always pick up new versions.
+
+**1. Connect the repository** (one time, in the Cloudflare dashboard):
+
+1. Open **Workers & Pages → Create → Import a repository**, then authorise GitHub and pick this repository.
+2. Fill in the project settings:
+   - **Project name:** `piste` (it must match `name` in `wrangler.jsonc`).
+   - **Production branch:** the branch you deploy from.
+   - **Build command:** `npm test`. The unit tests run first, and a failure stops the deploy.
+   - **Deploy command:** `npx wrangler deploy` (the default).
+3. Click **Deploy**. The site goes live at `https://piste.<your-account>.workers.dev`, and every push to that branch redeploys it. Other branches get preview URLs.
+
+**2. The domain.** `wrangler.jsonc` already serves the app on **uclfencing.com**. The domain must be on the same Cloudflare account: the first deploy creates its DNS record and HTTPS certificate. If it fails because a DNS record already exists for `uclfencing.com` (e.g. a parking page), delete that record and deploy again.
+
+- For `www.uclfencing.com`, add **Rules → Redirect Rules → template "Redirect from WWW to root"** in the dashboard.
+- The app is at `https://uclfencing.com/`.
+- Training bookings are at `https://uclfencing.com/book/`.
+
+**3. Moving everyone over from the old address happens by itself.** Phones keep the app's data per web address, so on a new domain they would start empty. To avoid that, `HOME_URL` (`https://uclfencing.com`) and `OLD_HOSTS` (`rrm-07.github.io`) are set in [`app/js/config.js`](app/js/config.js).
+
+The old address only forwards once uclfencing.com answers with `piste.json`. Until then it keeps working as before. Once it does:
+
+- **Phones with data** are offered **Move My Data**. This carries their poules, team matches, roster, settings and training bookings to the new address in the link itself (in the `#` part, which never reaches a server). The booking keys matter: members need them to cancel or check in.
+- **Phones with nothing to move** are forwarded straight away.
+- **Old shared links and QR codes** (`#join/…`, `#checkin/…`) keep working because they are forwarded too.
+- Not moved: the log of free bouts, which you can still export as a backup.
+- Cloudflare preview URLs are never forwarded.
+
+**Nothing changes in Firebase.** If you ever move the database to a host other than `*.firebasedatabase.app` or `*.firebaseio.com`, add it to `connect-src` in `app/_headers`.
+
+**From your computer instead:** run `npx wrangler login` once, then `npm run deploy`. `npm run preview` serves the site locally on Cloudflare's runtime.
+
+## Deploy to GitHub Pages (the original address)
 
 The app is plain static files under `app/`, and every path is relative, so it works from any sub-path such as `https://you.github.io/fencing/`.
 

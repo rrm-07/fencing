@@ -60,18 +60,24 @@ function query(value, startAt) {
 const send = (res, event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 const startsWith = (a, b) => b.every((k, i) => a[i] === k);
 
-function broadcast(parts) {
+/**
+ * Tell watchers about a request's writes, the way Firebase does: a single
+ * write is a 'put' at its path; a multi-path PATCH is one 'patch' event whose
+ * keys are paths relative to the watcher ("2026-10-21_wed-clfc/b123").
+ */
+function broadcast(paths, multi) {
   for (const l of listeners) {
-    if (startsWith(parts, l.parts)) {
-      const rel = parts.slice(l.parts.length);
-      if (l.startAt != null && rel.length && rel[0] < l.startAt) continue;
-      send(l.res, 'put', {
-        path: '/' + rel.join('/'),
-        data: rel.length ? getAt(parts) : query(getAt(parts), l.startAt),
+    const inside = paths.filter((p) => startsWith(p, l.parts) && p.length > l.parts.length);
+    const above = paths.some((p) => startsWith(l.parts, p));
+    const rel = inside.map((p) => p.slice(l.parts.length)).filter((r) => l.startAt == null || r[0] >= l.startAt);
+    if (above) send(l.res, 'put', { path: '/', data: query(getAt(l.parts), l.startAt) });
+    else if (!rel.length) continue;
+    else if (multi) {
+      send(l.res, 'patch', {
+        path: '/',
+        data: Object.fromEntries(rel.map((r) => [r.join('/'), getAt([...l.parts, ...r])])),
       });
-    } else if (startsWith(l.parts, parts)) {
-      send(l.res, 'put', { path: '/', data: query(getAt(l.parts), l.startAt) });
-    }
+    } else for (const r of rel) send(l.res, 'put', { path: `/${r.join('/')}`, data: getAt([...l.parts, ...r]) });
   }
 }
 
@@ -280,7 +286,10 @@ const server = createServer(async (req, res) => {
   const update = new Map(writes.map(([p, v]) => [p.join('/'), v]));
   if (!writes.every(([p, v]) => allowed(p, v, update))) return denied(res); // atomic, like Firebase
   for (const [p, v] of writes) setAt(p, v);
-  for (const [p] of writes) broadcast(p);
+  broadcast(
+    writes.map(([p]) => p),
+    req.method === 'PATCH',
+  );
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(req.method === 'DELETE' ? null : body));
 });

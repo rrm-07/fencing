@@ -1,0 +1,17 @@
+// Cloudflare deployment: the app is plain static files in app/, served by
+// Workers static assets (no server code). See README → "Deploy to Cloudflare".
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "piste",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./app",
+    // /book serves /book/index.html (and redirects to /book/)
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none",
+  },
+  // Serve on uclfencing.com (the domain must be on this Cloudflare account;
+  // deploying creates the DNS record and certificate). For www, add a
+  // Redirect Rule "www → root" in the dashboard (see README).
+  "routes": [{ "pattern": "uclfencing.com", "custom_domain": true }],
+}
