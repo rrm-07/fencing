@@ -1,6 +1,6 @@
 // Service worker: precache the whole app so it works fully offline.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'piste-v1.7.0';
+const VERSION = 'piste-v2.0.0';
 const ASSETS = [
   './',
   './index.html',
@@ -30,6 +30,17 @@ const ASSETS = [
   './js/ui/tableauView.js',
   './js/ui/report.js',
   './js/ui/qr.js',
+  './js/ui/shell.js',
+  './js/ui/aboutView.js',
+  './js/club.js',
+  './book/book.js',
+  './book/book.css',
+  './book/api.js',
+  './book/core.js',
+  './book/crypto.js',
+  './book/schedule.js',
+  './book/index.html',
+  './book/redirect.js',
   './js/vendor/qrcode.js',
   './icons/icon.svg',
   './icons/icon-192.png',
@@ -68,8 +79,6 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
-  // The booking page is always loaded fresh from the network.
-  if (url.pathname.includes('/book/')) return;
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then(
       (hit) =>

@@ -244,7 +244,7 @@ try {
   log('black card undone');
 
   console.log('\nPoule: 5 fencers end to end');
-  await page.locator('.tabbar [data-tab="poules"]').click();
+  await page.locator('.modebar [data-tab="poules"]').click();
   await shot('09-poules-empty');
   await page.getByRole('button', { name: 'New poule', exact: true }).click();
   await page.locator('input[aria-label="Poule name"]').fill('Tuesday club night');
@@ -367,7 +367,7 @@ try {
   await waitCount('.poule-row', 1);
   log('duplicate, search, delete with confirmation');
 
-  await page.locator('.tabbar [data-tab="bout"]').click();
+  await page.locator('.modebar [data-tab="bout"]').click();
   // The last poule bout is still on screen, confirmed: start a free bout.
   await page.locator('.banner').getByRole('button', { name: 'New bout' }).click();
   await touch('left', 3);
@@ -384,13 +384,13 @@ try {
   await page.reload();
   await page.waitForSelector('body.ready');
   assert.equal(await score('left'), 3);
-  await page.locator('.tabbar [data-tab="poules"]').click();
+  await page.locator('.modebar [data-tab="poules"]').click();
   await waitCount('.poule-row', 1);
   await context.setOffline(false);
   log('reloads and runs fully offline');
 
   console.log('\nLandscape');
-  await page.locator('.tabbar [data-tab="bout"]').click();
+  await page.locator('.modebar [data-tab="bout"]').click();
   await page.setViewportSize({ width: 667, height: 375 });
   await page.waitForTimeout(200);
   const digitH = await page.locator('.side.left .num').evaluate((n) => parseFloat(getComputedStyle(n).fontSize));

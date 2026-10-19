@@ -67,7 +67,7 @@ try {
   }, newUrl);
   await a.reload();
   await a.waitForSelector('.modal-wrap.open .alert');
-  assert.match(await a.locator('.modal-wrap.open').textContent(), /Piste Has Moved.*localhost:8092/);
+  assert.match(await a.locator('.modal-wrap.open').textContent(), /We’ve Moved.*localhost:8092/);
   await dlg(a, 'Move My Data');
   await a.waitForURL(`${newUrl}/**`);
   await a.waitForSelector('body.ready');
@@ -91,9 +91,9 @@ try {
   assert.ok(a.url().endsWith('#join/K7QM4X') || /#poules/.test(a.url()), a.url());
   log(`afterwards the old address forwards straight on (${a.url().replace(newUrl, '')})`);
 
-  // A member with only bookings, opening an old check-in link on the booking page.
+  // A member with only bookings opens an old check-in link (/book/#checkin/…).
   const m = await phone('member');
-  await m.goto(`${oldUrl}/book/`);
+  await m.goto(`${oldUrl}/about-blank-placeholder`).catch(() => {});
   await m.evaluate(
     ([b, url]) => {
       localStorage.setItem('piste:myBookings', JSON.stringify([b]));
@@ -105,17 +105,14 @@ try {
   await m.goto('about:blank'); // scanning a QR code opens a fresh page
   await m.goto(`${oldUrl}/book/#checkin/2026-10-21_wed-clfc/ABCD2345`);
   await m.waitForSelector('.modal-wrap.open .alert');
-  assert.match(await m.locator('.modal-wrap.open').textContent(), /Bookings Have Moved/);
-  await dlg(m, 'Continue');
-  await m.waitForURL(`${newUrl}/book/**`);
-  assert.ok(
-    m.url().endsWith('/book/#checkin/2026-10-21_wed-clfc/ABCD2345') ||
-      /checkin/.test(await m.locator('body').textContent()),
-    m.url(),
-  );
+  assert.match(await m.locator('.modal-wrap.open').textContent(), /We’ve Moved/);
+  await dlg(m, 'Move My Data');
+  await m.waitForURL(`${newUrl}/**`);
+  await m.waitForSelector('body.ready');
+  await m.waitForFunction(() => document.body.dataset.main === 'book');
   const moved = await m.evaluate(() => JSON.parse(localStorage.getItem('piste:myBookings')));
   assert.equal(moved[0].id, 'bmove2');
-  log('a member on the old booking page moved their bookings and kept the check-in link');
+  log('a member opening an old booking link moved their bookings and landed on the Book tab');
 
   // An empty phone is forwarded without asking.
   const e = await phone('empty');

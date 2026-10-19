@@ -152,7 +152,7 @@ try {
   log('semi-finals entered by hand on both phones: Ana 15–12 Eli, Cal 15–11 Ben');
 
   // The final in the scorer from Choose Bout.
-  await org.locator('.tabbar [data-tab="bout"]').click();
+  await org.locator('.modebar [data-tab="bout"]').click();
   await org.locator('.format').click();
   await settle(org);
   await top(org)

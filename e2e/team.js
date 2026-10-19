@@ -53,7 +53,7 @@ try {
   console.log('\nTeam match');
   await page.goto(APP_URL);
   await page.waitForSelector('body.ready');
-  await page.locator('.tabbar [data-tab="teams"]').click();
+  await page.locator('.modebar [data-tab="teams"]').click();
   await page.getByRole('button', { name: 'New team match', exact: true }).click();
   const fill = (label, v) => page.locator(`input[aria-label="${label}"]`).fill(v);
   await fill('Team A name', 'Ealing');

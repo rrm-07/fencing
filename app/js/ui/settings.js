@@ -17,7 +17,7 @@ import {
 import { state, setSetting, exportBackup, importBackup } from '../state.js';
 import { setHapticsEnabled, haptics } from './device.js';
 
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '2.0.0';
 
 const systemDark = () => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
 
@@ -95,15 +95,6 @@ export function openSettings() {
           }),
         ),
         group(
-          { header: 'Club', footer: 'The booking page for weekly training. Share its link with your members.' },
-          row({
-            lead: tile('clock', 'teal'),
-            title: 'Training Bookings',
-            chevron: true,
-            onClick: () => (location.href = new URL('book/', location.href.split('#')[0]).href),
-          }),
-        ),
-        group(
           {
             header: 'Your Data',
             footer:
@@ -130,7 +121,7 @@ export function openSettings() {
           }),
         ),
         fileInput,
-        h('p', { class: 'group-footer', style: { textAlign: 'center' } }, `Piste ${APP_VERSION} · Works offline`),
+        h('p', { class: 'group-footer', style: { textAlign: 'center' } }, `UCL Fencing ${APP_VERSION} · Works offline`),
       );
     };
     draw();

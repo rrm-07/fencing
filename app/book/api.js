@@ -123,6 +123,18 @@ export function saveTimetable(entries, secret) {
   return request('PATCH', '', body);
 }
 
+/**
+ * Organiser: write the club page (About tab): 'about' → { links…, tagline },
+ * 'photos/<id>' → { src, caption, at } or { deleted: true }. Proved like
+ * timetable changes, with a one-time op tied to the organiser secret.
+ */
+export function saveClub(entries, secret) {
+  const op = `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const body = { [`booking/adminOps/cfg/${op}`]: secret };
+  for (const [path, value] of Object.entries(entries)) body[`club/${path}`] = { ...value, op };
+  return request('PATCH', '', body);
+}
+
 /** Organiser: open check-in for a session with a code, shown at the door as a QR code. */
 export function openCheckin(sessionKey, code, secret) {
   return request('PATCH', '', {

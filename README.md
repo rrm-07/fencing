@@ -1,6 +1,14 @@
-# Piste
+# UCL Fencing (Piste)
 
-A mobile-first web app for scoring fencing bouts and running poules. You can use it one-handed at the side of the piste. It installs as an app and works fully offline. The design follows Apple's iOS conventions: system font with rounded numerals, Apple's system colours in dark and light (or automatic) appearance, grouped lists, sheets and action sheets. Every tap target is still at least 56px.
+The UCL Fencing club app, at **https://uclfencing.com**. It's a mobile-first web app that installs to the home screen and runs full screen like a native app (About → Install the App). You can use it one-handed at the side of the piste, and scoring works fully offline.
+
+Three tabs sit at the bottom: **Fence**, **Book** and **About**. They have a sliding highlight, and screens slide in from the side they sit on. Above the tab bar, a second row switches modes:
+
+- **Fence:** Scorer · Poules · Teams. It remembers where you were in each.
+- **Book:** Sessions (book training, cancel, coach lessons, check in) · Admin (organisers unlock with the passphrase to reach every organiser tool).
+- **About:** the club page. It has a rotating photo album, links to the Students' Union page, WhatsApp, Instagram and TikTok, and an install button. Organisers edit the links and upload photos under Book → Admin → Club Page. Empty links are hidden.
+
+Under the hood: The design follows Apple's iOS conventions: system font with rounded numerals, Apple's system colours in dark and light (or automatic) appearance, grouped lists, sheets and action sheets. Every tap target is still at least 56px.
 
 - **Bout scorer:** red and green lamps, big scores, and a clock that you tap to start and tap anywhere to stop. It has undo (100 steps), cards, the épée double, priority, DE periods, and a "Bout over" banner with confirm and undo.
 - **Poules:** 3–8 fencers, standard FIE bout order, and the classic V5/D3 sheet with live V, V/M, TS, TR, Ind and Rank. "Next bout" opens the scorer with names filled in and writes the result back to the sheet. Exports to CSV, PNG and print.
@@ -82,7 +90,7 @@ Piste is plain static files in `app/`. [`wrangler.jsonc`](wrangler.jsonc) serves
 
 - For `www.uclfencing.com`, add **Rules → Redirect Rules → template "Redirect from WWW to root"** in the dashboard.
 - The app is at `https://uclfencing.com/`.
-- Training bookings are at `https://uclfencing.com/book/`.
+- Training bookings are at `https://uclfencing.com/#book`. Old `…/book/` links forward there.
 
 **3. Moving everyone over from the old address happens by itself.** Phones keep the app's data per web address, so on a new domain they would start empty. To avoid that, `HOME_URL` (`https://uclfencing.com`) and `OLD_HOSTS` (`rrm-07.github.io`) are set in [`app/js/config.js`](app/js/config.js).
 
@@ -138,7 +146,7 @@ For local development there is a stand-in server: run `npm run mock-share`, then
 
 ## Training bookings
 
-A separate page for booking weekly training: **`…/fencing/app/book/`** (also reachable from Piste → ⋯ → Settings → Training Bookings). Share that link with members.
+The **Book** tab: share **`https://uclfencing.com/#book`** with members. Old `…/book/` links, including check-in QR codes, forward into the app.
 
 - **Timetable:** starts from the defaults in [`app/book/schedule.js`](app/book/schedule.js) (organisers can change it from the page):
   - Mon 7–9 pm, Central London FC (offsite, bring your own kit)
@@ -151,7 +159,7 @@ A separate page for booking weekly training: **`…/fencing/app/book/`** (also r
 
 - **Places:** 30 per session. Anyone after that joins the waitlist, and when someone cancels, the first person waiting moves up automatically.
 - **Booking:** members enter their name and membership/student number. Names are visible to everyone with the link. The number is encrypted on the member's phone with the organiser's public key, so only the organiser can read it. Members cancel their own booking from the phone they booked on (a secret key kept there proves it's theirs); nobody can cancel anyone else's.
-- **Organiser:** tap the people icon (or open `…/book/#organiser`).
+- **Organiser:** open **Book → Admin** (or `…/#book/admin`) and enter the passphrase.
   - The first time, choose a passphrase (at least 10 characters). It can't be recovered or changed, so keep it safe.
   - Unlocking with it on any device shows membership numbers and lets you remove a booking (press and hold), cancel or reopen a session with a reason, and export a CSV register.
   - **Weekly Timetable** lists every weekly session. You can edit one (venue, day, times, places, offsite, note, coaches), add a new one or delete one. Changes apply to every week from then on.
@@ -191,7 +199,10 @@ app/                    the deployable site
   js/store.js           IndexedDB / localStorage persistence, backup
   js/sync.js            live sync of shared poules (Firebase REST + EventSource)
   js/config.js          sharing server URL
-  book/                 training booking page (schedule.js, core.js, crypto.js, api.js, book.js)
+  book/                 the Book tab (schedule.js, core.js, crypto.js, api.js, book.js); index.html forwards old links
+  js/ui/shell.js        tab bar, mode rows and transitions
+  js/ui/aboutView.js    the About tab and its admin editors (links, photos)
+  js/club.js            About page defaults (name, tagline, links)
   js/state.js           app state and write-through saving
   js/ui/                screens: scorer, poules, settings, exports, dialogs
 tests/                  unit tests (node --test)

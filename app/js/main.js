@@ -6,10 +6,13 @@ import { movedAway, homeReady, receiveMove, goHome, moveHome, localData, homeUrl
 import { mountBoutView } from './ui/boutView.js';
 import { mountPoulesView, joinFlow } from './ui/pouleView.js';
 import { mountTeamsView } from './ui/teamView.js';
-import { startSync } from './sync.js';
+import { startSync, setSyncActive } from './sync.js';
 import { applyTheme } from './ui/settings.js';
 import { setHapticsEnabled, vibrate } from './ui/device.js';
 import { closeAllModals, clearToast, setHaptic, toast, button, confirmDialog } from './ui/dom.js';
+import { mountShell, reveal, TABS } from './ui/shell.js';
+import { mountAboutView } from './ui/aboutView.js';
+import { haptics } from './ui/device.js';
 
 const MOVED = 'piste:moved'; // on an old address: what has been moved ('all' | 'book')
 
@@ -31,7 +34,11 @@ async function boot() {
       600,
     );
   }
-  if (moved?.page === 'book') return location.replace(`book/${moved.hash ?? ''}`);
+  if (moved?.page === 'book') {
+    // The booking page now lives in the app: /book/#checkin/… → /#checkin/…
+    const h = moved.hash ?? '';
+    history.replaceState(null, '', h.startsWith('#checkin/') ? h : '#book');
+  }
   // On an old address: send people on (with their data if there is any).
   if (movedAway() && (await homeReady())) {
     const hasData =
@@ -50,80 +57,151 @@ async function boot() {
   const boutRoot = document.getElementById('view-bout');
   const poulesRoot = document.getElementById('view-poules');
   const teamsRoot = document.getElementById('view-teams');
+  const bookRoot = document.getElementById('book');
+  const adminRoot = document.getElementById('view-admin');
+  const aboutRoot = document.getElementById('view-about');
+  const sections = Object.fromEntries(TABS.map((t) => [t.id, document.getElementById(`tab-${t.id}`)]));
   const bout = mountBoutView(boutRoot);
   const poules = mountPoulesView(poulesRoot);
   const teams = mountTeamsView(teamsRoot);
-  const tabs = document.querySelectorAll('.tabbar [data-tab]');
+  const about = mountAboutView(aboutRoot);
+  let book = null; // the booking module, loaded on first visit
+  const loadBook = async () => {
+    book ??= await import('../book/book.js');
+    await book.start();
+    return book;
+  };
 
-  function route() {
-    const hash = location.hash.replace(/^#/, '');
-    let tab = 'bout';
-    let sub = { view: 'list' };
-    let joinCode = null;
-    if (hash.startsWith('join/')) {
-      // A shared link: piste/#join/K7QM4X
-      tab = 'poules';
-      joinCode = decodeURIComponent(hash.slice(5));
-      history.replaceState(null, '', '#poules');
-    } else if (hash.startsWith('poule/')) {
-      tab = 'poules';
-      sub = { view: 'sheet', id: decodeURIComponent(hash.slice(6)) };
-    } else if (hash.startsWith('poules/tableau')) {
-      tab = 'poules';
-      sub = { view: 'newTableau', from: decodeURIComponent(hash.split('/')[2] ?? '') || null };
-    } else if (hash === 'poules/new') {
-      tab = 'poules';
-      sub = { view: 'new' };
-    } else if (hash.startsWith('poules')) tab = 'poules';
-    else if (hash.startsWith('fixture/')) {
-      tab = 'teams';
-      sub = { view: 'fixture', id: decodeURIComponent(hash.slice(8)) };
-    } else if (hash.startsWith('team/')) {
-      tab = 'teams';
-      sub = { view: 'match', id: decodeURIComponent(hash.slice(5)) };
-    } else if (hash === 'teams/new') {
-      tab = 'teams';
-      sub = { view: 'new' };
-    } else if (hash.startsWith('teams')) tab = 'teams';
-    closeAllModals();
-    if (document.body.dataset.tab !== tab) clearToast();
-    document.body.dataset.tab = tab;
-    boutRoot.hidden = tab !== 'bout';
-    poulesRoot.hidden = tab !== 'poules';
-    teamsRoot.hidden = tab !== 'teams';
-    tabs.forEach((t) => t.setAttribute('aria-current', String(t.dataset.tab === tab)));
-    if (tab === 'poules') poules.show(sub);
-    if (tab === 'teams') teams.show(sub);
-    bout.render();
-    if (joinCode) joinFlow(joinCode);
-  }
+  const store = {
+    get: (k) => {
+      try {
+        return sessionStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set: (k, v) => {
+      try {
+        if (v == null) sessionStorage.removeItem(k);
+        else sessionStorage.setItem(k, v);
+      } catch {
+        /* storage blocked */
+      }
+    },
+  };
+  const order = { bout: 0, poules: 1, teams: 2, book: 3, admin: 4, about: 5 };
+  let shown = null; // the mode on screen
 
-  tabs.forEach((t) =>
-    t.addEventListener('click', () => {
-      if (t.dataset.tab === 'bout') location.hash = '#bout';
-      else if (t.dataset.tab === 'teams') {
-        const last = sessionStorage.getItem('piste:lastMatch');
+  const shell = mountShell({
+    onTab(tab) {
+      haptics.tap();
+      const here = document.body.dataset.main === tab;
+      if (tab === 'about') location.hash = '#about';
+      else if (tab === 'book') location.hash = here ? '#book' : (store.get('piste:lastBook') ?? '#book');
+      else if (here)
+        location.hash = `#${document.body.dataset.tab}`; // tap again: back to the top of the mode
+      else location.hash = store.get('piste:lastFence') ?? '#bout';
+    },
+    onMode(mode) {
+      haptics.tap();
+      if (mode === 'bout') location.hash = '#bout';
+      else if (mode === 'book') location.hash = '#book';
+      else if (mode === 'admin') location.hash = '#book/admin';
+      else if (mode === 'teams') {
+        const last = store.get('piste:lastMatch');
         location.hash =
           last && state.matches.has(last) && document.body.dataset.tab !== 'teams' ? `#team/${last}` : '#teams';
       } else {
         // Return to the poule you were last looking at, if any.
-        const last = sessionStorage.getItem('piste:lastPoule');
+        const last = store.get('piste:lastPoule');
         location.hash =
           last && state.poules.has(last) && document.body.dataset.tab !== 'poules' ? `#poule/${last}` : '#poules';
       }
-    }),
-  );
+    },
+  });
+
+  function route() {
+    const hash = location.hash.replace(/^#/, '');
+    let mode = 'bout';
+    let sub = { view: 'list' };
+    let joinCode = null;
+    if (hash.startsWith('join/')) {
+      // A shared link: uclfencing.com/#join/K7QM4X
+      mode = 'poules';
+      joinCode = decodeURIComponent(hash.slice(5));
+      history.replaceState(null, '', '#poules');
+    } else if (hash.startsWith('poule/')) {
+      mode = 'poules';
+      sub = { view: 'sheet', id: decodeURIComponent(hash.slice(6)) };
+    } else if (hash.startsWith('poules/tableau')) {
+      mode = 'poules';
+      sub = { view: 'newTableau', from: decodeURIComponent(hash.split('/')[2] ?? '') || null };
+    } else if (hash === 'poules/new') {
+      mode = 'poules';
+      sub = { view: 'new' };
+    } else if (hash.startsWith('poules')) mode = 'poules';
+    else if (hash.startsWith('fixture/')) {
+      mode = 'teams';
+      sub = { view: 'fixture', id: decodeURIComponent(hash.slice(8)) };
+    } else if (hash.startsWith('team/')) {
+      mode = 'teams';
+      sub = { view: 'match', id: decodeURIComponent(hash.slice(5)) };
+    } else if (hash === 'teams/new') {
+      mode = 'teams';
+      sub = { view: 'new' };
+    } else if (hash.startsWith('teams')) mode = 'teams';
+    else if (hash === 'book/admin' || hash === 'organiser') mode = 'admin';
+    else if (hash.startsWith('book') || hash.startsWith('checkin/')) mode = 'book';
+    else if (hash === 'about') mode = 'about';
+    const tab = mode === 'book' || mode === 'admin' ? 'book' : mode === 'about' ? 'about' : 'fence';
+
+    closeAllModals();
+    if (document.body.dataset.tab !== mode) clearToast();
+    const before = shown;
+    document.body.dataset.tab = mode;
+    document.body.dataset.main = tab;
+    for (const [id, el] of Object.entries(sections)) el.hidden = id !== tab;
+    boutRoot.hidden = mode !== 'bout';
+    poulesRoot.hidden = mode !== 'poules';
+    teamsRoot.hidden = mode !== 'teams';
+    bookRoot.hidden = mode !== 'book';
+    adminRoot.hidden = mode !== 'admin';
+    shell.set(tab, mode);
+    if (mode === 'poules') poules.show(sub);
+    if (mode === 'teams') teams.show(sub);
+    // Keep live streams (one connection each) to the tab on screen.
+    if (mode === 'about') about.show();
+    else about.hide();
+    setSyncActive(tab === 'fence');
+    if (tab !== 'book') book?.pause();
+    if (tab === 'book')
+      loadBook()
+        .then((b) => {
+          if (document.body.dataset.main !== 'book') return;
+          b.resume();
+          if (mode === 'admin') b.showAdmin(adminRoot);
+          else b.showSessions();
+        })
+        .catch((e) => toast(e.message));
+    bout.render();
+    if (joinCode) joinFlow(joinCode);
+    // Slide the new screen in from the side it sits on.
+    if (before && before !== mode) {
+      const el = { bout: boutRoot, poules: poulesRoot, teams: teamsRoot, book: bookRoot, admin: adminRoot }[mode];
+      reveal(el ?? sections[tab], Math.sign(order[mode] - order[before]));
+    }
+    shown = mode;
+    if (tab === 'fence') store.set('piste:lastFence', `#${hash || 'bout'}`);
+    if (tab === 'book' && !hash.startsWith('checkin/')) store.set('piste:lastBook', `#${hash}`);
+  }
+
   window.addEventListener('hashchange', () => {
     const m = location.hash.match(/^#poule\/(.+)$/);
     const t = location.hash.match(/^#team\/(.+)$/);
-    try {
-      if (m) sessionStorage.setItem('piste:lastPoule', decodeURIComponent(m[1]));
-      else if (location.hash === '#poules') sessionStorage.removeItem('piste:lastPoule');
-      if (t) sessionStorage.setItem('piste:lastMatch', decodeURIComponent(t[1]));
-      else if (location.hash === '#teams') sessionStorage.removeItem('piste:lastMatch');
-    } catch {
-      /* storage blocked */
-    }
+    if (m) store.set('piste:lastPoule', decodeURIComponent(m[1]));
+    else if (location.hash === '#poules') store.set('piste:lastPoule', null);
+    if (t) store.set('piste:lastMatch', decodeURIComponent(t[1]));
+    else if (location.hash === '#teams') store.set('piste:lastMatch', null);
     route();
   });
   subscribe((evt) => evt.type === 'settings' && applyTheme());
@@ -136,8 +214,8 @@ async function boot() {
 async function offerMove() {
   const host = new URL(homeUrl()).host;
   const ok = await confirmDialog({
-    title: 'Piste Has Moved',
-    message: `Piste now lives at ${host}. Move this phone’s poules, team matches and training bookings there? Shared poules keep working either way.`,
+    title: 'We’ve Moved',
+    message: `The app now lives at ${host}. Move this phone’s poules, team matches and training bookings there? Shared poules keep working either way.`,
     confirm: 'Move My Data',
     cancel: 'Not Now',
   });

@@ -89,6 +89,7 @@ function denied(res) {
 /** Which paths can be read. */
 function readable(p) {
   if (p[0] === 'poules') return p.length >= 2 && CODE.test(p[1]);
+  if (p[0] === 'club') return true;
   if (p[0] === 'booking')
     return ['sessions', 'closures', 'publicKey', 'privateKey', 'config', 'lessons', 'attendance'].includes(p[1]);
   return false;
@@ -121,6 +122,26 @@ function allowed(p, v, upd) {
   }
   if (top === 'deletions' && p.length === 2) return getAt(['owners', a]) !== null && typeof v === 'string';
 
+  if (top === 'club') {
+    // The club page: organiser writes, proved with a one-time op (like config).
+    const opOk =
+      typeof v?.op === 'string' &&
+      getAt(['booking', 'adminOps', 'cfg', v.op]) === null &&
+      typeof upd.get(`booking/adminOps/cfg/${v.op}`) === 'string';
+    if (a === 'about' && p.length === 2) {
+      const links = ['su', 'whatsapp', 'instagram', 'tiktok'].every(
+        (k) => v[k] == null || (typeof v[k] === 'string' && (v[k] === '' || v[k].startsWith('https://'))),
+      );
+      return opOk && links;
+    }
+    if (a === 'photos' && p.length === 3)
+      return (
+        opOk &&
+        /^[a-z0-9]{1,40}$/.test(b) &&
+        (v.deleted === true || (typeof v.src === 'string' && v.src.startsWith('data:image/jpeg;base64,')))
+      );
+    return false;
+  }
   if (top === 'booking') {
     const isAdmin = (secret) => typeof secret === 'string' && getAt(['booking', 'admin', secret]) === true;
     if (a === 'publicKey' || a === 'privateKey') return p.length === 2 && getAt(p) === null && v != null;

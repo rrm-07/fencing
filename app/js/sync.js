@@ -193,9 +193,25 @@ function open(code) {
 }
 
 /** Keep one stream open per shared poule on this phone. */
+// Browsers allow only ~6 connections per server (over HTTP/1.1) and each live
+// stream holds one, so stream only while poules are on screen, and at most
+// MAX_STREAMS of them (the most recently used); the rest catch up when opened.
+const MAX_STREAMS = 4;
+let active = true;
+
+/** Stream shared poules only while the Fence tab is in use. */
+export function setSyncActive(on) {
+  if (active === on) return;
+  active = on;
+  reconcile();
+}
+
 function reconcile() {
   if (!sharingEnabled() || navigator.onLine === false) return;
-  const wanted = new Set([...state.poules.values()].filter((p) => p.share).map((p) => p.share.code));
+  const shared = [...state.poules.values()]
+    .filter((p) => p.share)
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const wanted = new Set(active ? shared.slice(0, MAX_STREAMS).map((p) => p.share.code) : []);
   for (const [code, s] of streams) {
     if (!wanted.has(code)) {
       s.es.close();

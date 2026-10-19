@@ -10,7 +10,8 @@ import { startDb } from './db.js';
 
 const APP_PORT = 8095;
 const DB_PORT = 9095;
-const BOOK_URL = `http://localhost:${APP_PORT}/book/`;
+const APP = `http://localhost:${APP_PORT}/`;
+const BOOK_URL = `${APP}#book`; // the Book tab
 const DB = `http://localhost:${DB_PORT}`;
 const shots = new URL('./screens/', import.meta.url).pathname;
 await mkdir(shots, { recursive: true });
@@ -42,6 +43,9 @@ async function phone(name) {
 let step = 0;
 const log = (msg) => console.log(`  ${String(++step).padStart(2)}. ${msg}`);
 const settle = (page) => page.waitForTimeout(500);
+const toAdmin = async (page) => (await page.locator('.modebar [data-tab="admin"]').click(), settle(page));
+const toSessions = async (page) => (await page.locator('.modebar [data-tab="book"]').click(), settle(page));
+const adminButton = (page, name) => page.locator('#view-admin').getByRole('button', { name }).click();
 const dlg = (page, name) => page.locator('.modal-wrap.open').getByRole('button', { name, exact: true }).click();
 const rest = async (method, path, body) => {
   const res = await fetch(`${DB}/${path}.json`, {
@@ -56,13 +60,20 @@ try {
   console.log('\nTraining bookings');
   // Organiser sets up bookings.
   const org = await phone('organiser');
-  await org.goto(`${BOOK_URL}#organiser`);
-  await org.waitForSelector('.modal-wrap.open input[aria-label="Organiser passphrase"]');
+  await org.goto(`${APP}#book/admin`);
+  await org.waitForSelector('#view-admin input[aria-label="Organiser passphrase"]');
   await org.locator('input[aria-label="Organiser passphrase"]').fill('correct horse 42');
   await org.locator('input[aria-label="Repeat passphrase"]').fill('correct horse 42');
-  await dlg(org, 'Set Up Bookings');
-  await org.waitForSelector('.org-on', { timeout: 15000 });
+  await org.locator('#view-admin').getByRole('button', { name: 'Set Up Bookings' }).click();
+  await org.waitForFunction(
+    () => /Organiser mode is on/.test(document.getElementById('view-admin').textContent),
+    null,
+    {
+      timeout: 15000,
+    },
+  );
   await org.screenshot({ path: `${shots}b1-organiser.png` });
+  await toSessions(org);
   log('organiser set up bookings with a passphrase');
 
   // Alice books the first session that hasn't started.
@@ -192,7 +203,8 @@ try {
   await settle(org);
   await top(org).getByRole('button', { name: 'Done' }).click();
   await settle(org);
-  await org.getByRole('button', { name: 'Add One-off Session' }).click();
+  await toAdmin(org);
+  await adminButton(org, 'Add One-off Session');
   await settle(org);
   await top(org).locator('input[aria-label="Venue or title"]').fill('Open Day Bouting');
   await top(org).locator('input[aria-label="Date"]').fill(tomorrow);
@@ -204,6 +216,8 @@ try {
   await top(org).locator('input[aria-label="Lesson slots 1"]').fill('1');
   await org.screenshot({ path: `${shots}b8-add-event.png` });
   await top(org).getByRole('button', { name: 'Add', exact: true }).click();
+  await settle(org);
+  await toSessions(org);
   const eventRow = (page) => page.locator('.session-row').filter({ hasText: 'Open Day Bouting' }).first();
   await eventRow(alice).waitFor({ timeout: 8000 });
   assert.match(await eventRow(alice).textContent(), /One-off.*Lessons/);
@@ -273,7 +287,8 @@ try {
 
   // Organiser adds a weekly session: the default timetable is kept alongside it.
   const before = await bob.locator('.session-row').count();
-  await org.getByRole('button', { name: 'Weekly Timetable' }).click();
+  await toAdmin(org);
+  await adminButton(org, 'Weekly Timetable');
   await settle(org);
   await org.screenshot({ path: `${shots}b10-timetable.png` });
   await top(org).getByRole('button', { name: 'Add Weekly Session' }).click();
@@ -309,6 +324,7 @@ try {
     },
   );
   await top(org).getByRole('button', { name: 'Done' }).click();
+  await toSessions(org);
   log('organiser deleted the one-off session: gone for members');
 
   // Timetable changes need the organiser secret.
@@ -345,13 +361,16 @@ try {
     await top(org).getByRole('button', { name: 'Done' }).click();
     await settle(org);
   }
-  await org.locator('#book').getByRole('button', { name: 'Add One-off Session' }).click();
+  await toAdmin(org);
+  await adminButton(org, 'Add One-off Session');
   await settle(org);
   await top(org).locator('input[aria-label="Venue or title"]').fill('Open Bouting Night');
   await top(org).locator('input[aria-label="Date"]').fill(today);
   await top(org).locator('input[aria-label="Start time"]').fill(startT);
   await top(org).locator('input[aria-label="End time"]').fill(endT);
   await top(org).getByRole('button', { name: 'Add', exact: true }).click();
+  await settle(org);
+  await toSessions(org);
   const nightRow = (page) => page.locator('.session-row').filter({ hasText: 'Open Bouting Night' }).first();
   for (const [pg, who] of [
     [alice, 'Alice'],
@@ -390,7 +409,7 @@ try {
   log(`organiser shows the check-in QR code (${checkCode})`);
 
   // Alice scans it: her phone opens the link and checks her in.
-  await alice.goto(`${BOOK_URL}#checkin/${sKey}/${checkCode.replace('-', '')}`);
+  await alice.goto(`${APP}#checkin/${sKey}/${checkCode.replace('-', '')}`);
   await alice.waitForSelector('.modal-wrap.open .checked-alert', { timeout: 10000 });
   await settle(alice);
   await alice.screenshot({ path: `${shots}b12-checked-in.png` });
@@ -422,7 +441,7 @@ try {
 
   // Carol has no booking: scanning offers to book and check in.
   const carol = await phone('carol');
-  await carol.goto(`${BOOK_URL}#checkin/${sKey}/${checkCode.replace('-', '')}`);
+  await carol.goto(`${APP}#checkin/${sKey}/${checkCode.replace('-', '')}`);
   await carol.waitForSelector('.modal-wrap.open .alert', { timeout: 10000 });
   assert.match(await top(carol).textContent(), /No booking on this phone/);
   await dlg(carol, 'Book & Check In');
@@ -482,7 +501,8 @@ try {
   log('organiser un-ticked Bob and added walk-in Wes: the register CSV says who came');
 
   // Attendance report.
-  await org.getByRole('button', { name: /^Attendance/ }).click();
+  await toAdmin(org);
+  await adminButton(org, /^Attendance/);
   await org.waitForSelector('.modal-wrap.open .stat-tiles', { timeout: 10000 });
   const stats = await org.locator('.modal-wrap.open .stat b').allTextContents();
   assert.deepEqual(stats, ['1', '67%', '1', '1'], stats.join(','));
@@ -494,10 +514,9 @@ try {
   log('attendance report: 1 register, 67% of places turned up, Bob a no-show, 1 walk-in');
 
   // A wrong passphrase can't unlock organiser mode.
-  await alice.locator('[aria-label="Organiser"]').click();
-  await settle(alice);
+  await toAdmin(alice);
   await alice.locator('input[aria-label="Organiser passphrase"]').fill('wrong passphrase');
-  await dlg(alice, 'Unlock');
+  await adminButton(alice, 'Unlock');
   await alice.waitForFunction(() => /Wrong passphrase/.test(document.querySelector('.toast')?.textContent), null, {
     timeout: 15000,
   });

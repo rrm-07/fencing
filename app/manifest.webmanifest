@@ -1,7 +1,7 @@
 {
-  "name": "Piste — fencing scorer",
-  "short_name": "Piste",
-  "description": "Score fencing bouts and run poules. Works offline.",
+  "name": "UCL Fencing",
+  "short_name": "UCL Fencing",
+  "description": "UCL Fencing: score bouts, run poules and team matches, book training and check in.",
   "start_url": "./",
   "scope": "./",
   "id": "./",
@@ -11,9 +11,50 @@
   "theme_color": "#000000",
   "categories": ["sports", "utilities"],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Score a Bout",
+      "short_name": "Scorer",
+      "url": "./#bout",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Book Training",
+      "short_name": "Book",
+      "url": "./#book",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

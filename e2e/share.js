@@ -65,7 +65,7 @@ try {
   const org = await phone('organiser');
   await org.page.goto(APP_URL);
   await org.page.waitForSelector('body.ready');
-  await org.page.locator('.tabbar [data-tab="poules"]').click();
+  await org.page.locator('.modebar [data-tab="poules"]').click();
   await org.page.getByRole('button', { name: 'New poule', exact: true }).click();
   await org.page.locator('input[aria-label="Poule name"]').fill('Saturday U14');
   for (const n of ['Ana', 'Ben', 'Cal', 'Dov']) {
@@ -90,7 +90,7 @@ try {
   const parent = await phone('parent');
   await parent.page.goto(APP_URL);
   await parent.page.waitForSelector('body.ready');
-  await parent.page.locator('.tabbar [data-tab="poules"]').click();
+  await parent.page.locator('.modebar [data-tab="poules"]').click();
   await parent.page.getByRole('button', { name: 'Join a shared poule with a code' }).click();
   await parent.page.screenshot({ path: `${shots}s2-join.png` });
   await parent.page.locator('input[aria-label="Share code"]').fill(code.toLowerCase().replace('-', ' '));

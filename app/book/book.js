@@ -49,7 +49,7 @@ import {
   attendanceReport,
 } from './core.js';
 import { qrSvg } from '../js/ui/qr.js';
-import { movedAway, homeReady, goHome, moveHome, localData, homeUrl } from '../js/move.js';
+import { editAboutSheet, photosSheet } from '../js/ui/aboutView.js';
 import * as api from './api.js';
 import { createOrganiserKeys, unlockOrganiser, encryptFor, decryptWith, randomKey } from './crypto.js';
 
@@ -166,12 +166,7 @@ function render() {
     { class: 'navbar large' },
     h('div', { class: 'nav-l' }),
     h('div', { class: 'nav-title' }, CLUB.title),
-    h(
-      'div',
-      { class: 'nav-r' },
-      iconButton('share', shareLink, 'Share booking link'),
-      iconButton('people', organiserSheet, S.org ? 'Organiser (unlocked)' : 'Organiser', S.org ? 'org-on' : ''),
-    ),
+    h('div', { class: 'nav-r' }, iconButton('share', shareLink, 'Share booking link')),
   );
   const body = h(
     'div',
@@ -184,34 +179,20 @@ function render() {
     ),
     S.org &&
       group(
-        { header: 'Organiser', footer: 'Membership numbers are visible to you on this device until you lock it.' },
+        {},
         row({
-          lead: tile('doc', 'green'),
-          title: 'Export Register (CSV)',
+          lead: tile('lock', 'green'),
+          title: 'Organiser mode is on',
+          subtitle: 'Membership numbers and tools are visible on this phone',
           chevron: true,
-          onClick: () => exportCsv(sessions),
+          onClick: () => (location.hash = '#book/admin'),
         }),
-        row({
-          lead: tile('check', 'teal'),
-          title: 'Attendance',
-          subtitle: 'Registers, no-shows and walk-ins',
-          chevron: true,
-          onClick: attendanceSheet,
-        }),
-        row({ lead: tile('clock', 'blue'), title: 'Weekly Timetable', chevron: true, onClick: timetableSheet }),
-        row({
-          lead: tile('plus', 'purple'),
-          title: 'Add One-off Session',
-          chevron: true,
-          onClick: () => editSessionSheet({ mode: 'event' }),
-        }),
-        row({ lead: tile('people', 'gray'), title: 'Lock Organiser Mode', tone: 'danger', onClick: lock }),
       ),
     S.keysLoaded &&
       !S.keys.publicKey &&
       group(
         {
-          footer: 'The organiser needs to set up bookings once before anyone can book: tap the people icon at the top.',
+          footer: 'An organiser needs to set up bookings once (Book → Admin) before anyone can book.',
         },
         row({ lead: tile('clock', 'orange'), title: 'Bookings open soon' }),
       ),
@@ -243,6 +224,7 @@ function render() {
   fill(root, h('section', { class: 'page' }, nav, body));
   body.scrollTop = y;
   nav.classList.toggle('scrolled', y > 8);
+  if (adminRoot) renderAdmin();
   for (const redraw of sheets) redraw();
 }
 
@@ -675,7 +657,7 @@ async function cancelMine(s, m) {
 }
 
 async function shareLink() {
-  const url = location.href.split('#')[0];
+  const url = new URL('#book', location.href.split('#')[0]).href;
   try {
     if (navigator.share) await navigator.share({ title: `${CLUB.title} bookings`, url });
     else {
@@ -689,79 +671,168 @@ async function shareLink() {
 
 /* ---------- organiser ---------- */
 
-function organiserSheet() {
-  if (S.org) {
-    return confirmDialog({
-      title: 'Organiser mode is on',
-      message: 'Membership numbers and organiser tools are visible on this device.',
-      confirm: 'Lock',
-      cancel: 'Keep Unlocked',
-    }).then((ok) => ok && lock());
-  }
-  if (!S.keysLoaded) return toast('Still connecting…');
-  const setup = !S.keys.publicKey;
-  return modal((close) => {
-    const pass = h('input', {
-      class: 'input',
-      type: 'password',
-      placeholder: 'Passphrase',
-      autocomplete: setup ? 'new-password' : 'current-password',
-      'aria-label': 'Organiser passphrase',
-    });
-    const pass2 = h('input', {
-      class: 'input',
-      type: 'password',
-      placeholder: 'Repeat passphrase',
-      autocomplete: 'new-password',
-      'aria-label': 'Repeat passphrase',
-    });
-    const go = button(setup ? 'Set Up Bookings' : 'Unlock', submit, 'btn-filled btn-block btn-large');
-    async function submit() {
-      const p = pass.value;
-      if (setup) {
-        if (p.length < 10) return toast('Use at least 10 characters', { ms: 3500 });
-        if (p !== pass2.value) return toast('The passphrases don’t match');
-      }
-      go.disabled = true;
-      go.textContent = setup ? 'Setting up…' : 'Unlocking…';
-      try {
-        if (setup) {
-          const keys = await createOrganiserKeys(p);
-          await api.setUp(keys);
-          S.keys = await api.getKeys();
-        }
-        S.org = await unlockOrganiser(p, S.keys.privateKey);
-        close();
-        toast(setup ? 'Bookings are open' : 'Organiser mode on');
-        render();
-        decryptVisible(sessionsAt());
-      } catch (e) {
-        toast(e.message, { ms: 4000 });
-        go.disabled = false;
-        go.textContent = setup ? 'Set Up Bookings' : 'Unlock';
-      }
-    }
-    return h(
-      'form',
-      { class: 'sheet-body', onSubmit: (e) => (e.preventDefault(), submit()) },
-      sheetNav({ title: setup ? 'Set Up Bookings' : 'Organiser', left: { label: 'Cancel', onClick: () => close() } }),
-      h(
-        'p',
-        { class: 'sheet-status' },
-        setup
-          ? 'Choose an organiser passphrase. It unlocks membership numbers and lets you remove bookings or cancel sessions, on any device. Keep it safe: it can’t be recovered or changed.'
-          : 'Enter the organiser passphrase to see membership numbers and manage sessions.',
+/* ---------- admin (Book → Admin) ---------- */
+
+let adminRoot = null;
+
+/** The organiser's screen: unlock with the passphrase, then every organiser tool in one place. */
+function renderAdmin() {
+  const pb = adminRoot.querySelector('.page-body');
+  const y = pb?.scrollTop ?? 0;
+  const now = Date.now();
+  const nav = h(
+    'header',
+    { class: 'navbar large' },
+    h('div', { class: 'nav-l' }),
+    h('div', { class: 'nav-title' }, 'Admin'),
+    h('div', { class: 'nav-r' }),
+  );
+  let content;
+  if (!api.serverUrl()) content = [h('p', { class: 'sheet-status' }, 'Bookings aren’t connected to a server yet.')];
+  else if (!S.keysLoaded) content = [h('p', { class: 'sheet-status' }, 'Connecting…')];
+  else if (!S.org) content = [unlockForm()];
+  else {
+    const doorNow = sessionsAt(now).filter((s) => checkinOpen(s, now) && !closureOf(S.closures[s.key]));
+    content = [
+      group(
+        { footer: 'Membership numbers and organiser tools are visible on this phone until you lock it.' },
+        row({ lead: tile('lock', 'green'), title: 'Organiser mode is on', detail: 'This phone' }),
       ),
-      group({}, row({ title: pass, cls: 'row-inline' }), setup && row({ title: pass2, cls: 'row-inline' })),
-      go,
-    );
+      doorNow.length > 0 &&
+        group(
+          { header: 'At the Door', footer: 'Show the code at the entrance; members scan it to check in.' },
+          ...doorNow.map((s) =>
+            row({
+              lead: tile('grid', 'teal'),
+              title: `Check-in Code · ${venueOf(s).short}`,
+              subtitle: `${timeRange(s)} · ${attendanceOf(S.attendance[s.key]).present.size} checked in`,
+              chevron: true,
+              onClick: () => checkinCodeSheet(s),
+            }),
+          ),
+        ),
+      group(
+        { header: 'Sessions' },
+        row({
+          lead: tile('check', 'teal'),
+          title: 'Attendance',
+          subtitle: 'Registers, no-shows and walk-ins',
+          chevron: true,
+          onClick: attendanceSheet,
+        }),
+        row({ lead: tile('clock', 'blue'), title: 'Weekly Timetable', chevron: true, onClick: timetableSheet }),
+        row({
+          lead: tile('plus', 'purple'),
+          title: 'Add One-off Session',
+          chevron: true,
+          onClick: () => editSessionSheet({ mode: 'event' }),
+        }),
+        row({
+          lead: tile('doc', 'green'),
+          title: 'Export Register (CSV)',
+          subtitle: 'Upcoming sessions',
+          chevron: true,
+          onClick: () => exportCsv(sessionsAt()),
+        }),
+      ),
+      group(
+        { header: 'Club Page', footer: 'What everyone sees under About.' },
+        row({
+          lead: tile('link', 'indigo'),
+          title: 'Links',
+          subtitle: 'Students’ Union, WhatsApp, Instagram, TikTok',
+          chevron: true,
+          onClick: () => editAboutSheet(S.org.secret),
+        }),
+        row({
+          lead: tile('photo', 'orange'),
+          title: 'Photos',
+          chevron: true,
+          onClick: () => photosSheet(S.org.secret),
+        }),
+      ),
+      group({}, row({ lead: tile('lock', 'gray'), title: 'Lock Organiser Mode', tone: 'danger', onClick: lock })),
+    ];
+  }
+  const body = h('div', { class: 'page-body' }, h('h1', { class: 'large-title' }, 'Admin'), ...content);
+  body.addEventListener('scroll', () => nav.classList.toggle('scrolled', body.scrollTop > 8), { passive: true });
+  // Don't rebuild the form under someone typing their passphrase.
+  if (
+    !S.org &&
+    adminRoot.querySelector('input[aria-label="Organiser passphrase"]') &&
+    S.keysLoaded &&
+    adminRoot.dataset.state === 'form'
+  )
+    return;
+  adminRoot.dataset.state = S.org ? 'tools' : S.keysLoaded ? 'form' : 'wait';
+  fill(adminRoot, h('section', { class: 'page' }, nav, body));
+  body.scrollTop = y;
+}
+
+function unlockForm() {
+  const setup = !S.keys.publicKey;
+  const pass = h('input', {
+    class: 'input',
+    type: 'password',
+    placeholder: 'Passphrase',
+    autocomplete: setup ? 'new-password' : 'current-password',
+    'aria-label': 'Organiser passphrase',
   });
+  const pass2 = h('input', {
+    class: 'input',
+    type: 'password',
+    placeholder: 'Repeat passphrase',
+    autocomplete: 'new-password',
+    'aria-label': 'Repeat passphrase',
+  });
+  const label = setup ? 'Set Up Bookings' : 'Unlock';
+  const go = button([icon('lock'), label], null, 'btn-filled btn-block btn-large', { type: 'submit' });
+  async function submit() {
+    const p = pass.value;
+    if (setup) {
+      if (p.length < 10) return toast('Use at least 10 characters', { ms: 3500 });
+      if (p !== pass2.value) return toast('The passphrases don’t match');
+    }
+    go.disabled = true;
+    go.lastChild.textContent = setup ? 'Setting up…' : 'Unlocking…';
+    try {
+      if (setup) {
+        const keys = await createOrganiserKeys(p);
+        await api.setUp(keys);
+        S.keys = await api.getKeys();
+      }
+      S.org = await unlockOrganiser(p, S.keys.privateKey);
+      toast(setup ? 'Bookings are open' : 'Organiser mode on');
+      adminRoot.dataset.state = '';
+      render();
+      decryptVisible(sessionsAt());
+    } catch (e) {
+      toast(e.message, { ms: 4000 });
+      go.disabled = false;
+      go.lastChild.textContent = label;
+    }
+  }
+  return h(
+    'form',
+    { class: 'admin-unlock', onSubmit: (e) => (e.preventDefault(), submit()) },
+    h('div', { class: 'admin-badge' }, icon('lock')),
+    h(
+      'p',
+      { class: 'sheet-status' },
+      setup
+        ? 'Choose an organiser passphrase. It unlocks membership numbers and the organiser tools on any phone. Keep it safe: it can’t be recovered or changed.'
+        : 'Club organisers: enter the passphrase to manage sessions, take registers and edit the club page.',
+    ),
+    group({}, row({ title: pass, cls: 'row-inline' }), setup && row({ title: pass2, cls: 'row-inline' })),
+    go,
+  );
 }
 
 function lock() {
   S.org = null;
   S.members.clear();
   toast('Organiser mode locked');
+  if (adminRoot) adminRoot.dataset.state = '';
   render();
 }
 
@@ -1638,45 +1709,39 @@ function exportAttendance(report, from) {
 
 /* ---------- start ---------- */
 
-function applyTheme() {
-  const dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+let started = null;
+let streams = null; // opens the live streams; returns their close functions
+let closers = [];
+
+/** Book tab shown / hidden: open or close the live streams. */
+export function resume() {
+  if (!streams || closers.length) return;
+  closers = streams();
+}
+export function pause() {
+  for (const close of closers) close();
+  closers = [];
 }
 
-/** On an old address: send members on to the new one, with their bookings. */
-async function leaveOldAddress() {
-  if (!movedAway() || !(await homeReady())) return false;
-  let moved = null;
-  try {
-    moved = localStorage.getItem('piste:moved'); // set raw by either page
-  } catch {
-    /* storage blocked */
-  }
-  if (!Object.keys(localData()).length || moved) {
-    goHome('book');
-    return true;
-  }
-  applyTheme();
-  const ok = await confirmDialog({
-    title: 'Bookings Have Moved',
-    message: `Training bookings are now at ${new URL(homeUrl()).host}. Your bookings on this phone come with you.`,
-    confirm: 'Continue',
-    cancel: 'Not Now',
-  });
-  if (!ok) return false;
-  try {
-    localStorage.setItem('piste:moved', 'book');
-  } catch {
-    /* storage blocked */
-  }
-  await moveHome({ page: 'book' });
-  return true;
+/** Connect and start the live updates (once). */
+export function start() {
+  started ??= connect();
+  return started;
 }
 
-async function start() {
-  if (await leaveOldAddress()) return;
-  applyTheme();
-  globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+/** Book → Sessions. */
+export function showSessions() {
+  render();
+}
+
+/** Book → Admin, drawn into `el`. */
+export function showAdmin(el) {
+  adminRoot = el;
+  adminRoot.dataset.state = '';
+  renderAdmin();
+}
+
+async function connect() {
   render();
   if (!api.serverUrl()) {
     toast('Bookings aren’t connected to a server yet');
@@ -1692,28 +1757,37 @@ async function start() {
   };
   let loaded;
   const sessionsLoaded = new Promise((resolve) => (loaded = resolve));
-  api.watch('booking/sessions', {
-    startAt: weekAgo,
-    onChange: (t) => {
-      S.sessions = t;
-      loaded();
-      render();
-      if (S.org) decryptVisible(sessionsAt());
-    },
-    onStatus: status,
-  });
-  api.watch('booking/closures', { startAt: weekAgo, onChange: (t) => ((S.closures = t), render()), onStatus: status });
-  api.watch('booking/attendance', {
-    startAt: weekAgo,
-    onChange: (t) => {
-      S.attendance = t;
-      render();
-      if (S.org) decryptVisible(sessionsAt());
-    },
-    onStatus: status,
-  });
-  api.watch('booking/config', { onChange: (t) => ((S.config = t), render()), onStatus: status });
-  api.watch('booking/lessons', { startAt: today, onChange: (t) => ((S.lessons = t), render()), onStatus: status });
+  // Live streams only while the Book tab is shown: each holds one of the
+  // ~6 connections a browser allows per server, and writes need one too.
+  streams = () => [
+    api.watch('booking/sessions', {
+      startAt: weekAgo,
+      onChange: (t) => {
+        S.sessions = t;
+        loaded();
+        render();
+        if (S.org) decryptVisible(sessionsAt());
+      },
+      onStatus: status,
+    }),
+    api.watch('booking/closures', {
+      startAt: weekAgo,
+      onChange: (t) => ((S.closures = t), render()),
+      onStatus: status,
+    }),
+    api.watch('booking/attendance', {
+      startAt: weekAgo,
+      onChange: (t) => {
+        S.attendance = t;
+        render();
+        if (S.org) decryptVisible(sessionsAt());
+      },
+      onStatus: status,
+    }),
+    api.watch('booking/config', { onChange: (t) => ((S.config = t), render()), onStatus: status }),
+    api.watch('booking/lessons', { startAt: today, onChange: (t) => ((S.lessons = t), render()), onStatus: status }),
+  ];
+  resume();
   try {
     S.keys = await api.getKeys();
   } catch (e) {
@@ -1721,7 +1795,6 @@ async function start() {
   }
   S.keysLoaded = true;
   render();
-  if (location.hash === '#organiser') organiserSheet();
   // Check-in links from the QR code at the door (also when the page is already open).
   const onCheckinLink = async () => {
     const checkin = parseCheckinHash(location.hash);
@@ -1735,5 +1808,3 @@ async function start() {
   // Expose for debugging and end-to-end tests.
   window.__book = S;
 }
-
-start();

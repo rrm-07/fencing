@@ -201,6 +201,19 @@
           }
         }
       }
+    },
+    "club": {
+      ".read": true,
+      "about": {
+        ".write": "newData.child('op').isString() && newData.child('op').val().length <= 40 && !root.child('booking').child('adminOps').child('cfg').child(newData.child('op').val()).exists() && newData.parent().parent().child('booking').child('adminOps').child('cfg').child(newData.child('op').val()).isString()",
+        ".validate": "(!newData.hasChild('su') || (newData.child('su').isString() && newData.child('su').val().length <= 300 && (newData.child('su').val() == '' || newData.child('su').val().beginsWith('https://')))) && (!newData.hasChild('whatsapp') || (newData.child('whatsapp').isString() && newData.child('whatsapp').val().length <= 300 && (newData.child('whatsapp').val() == '' || newData.child('whatsapp').val().beginsWith('https://')))) && (!newData.hasChild('instagram') || (newData.child('instagram').isString() && newData.child('instagram').val().length <= 300 && (newData.child('instagram').val() == '' || newData.child('instagram').val().beginsWith('https://')))) && (!newData.hasChild('tiktok') || (newData.child('tiktok').isString() && newData.child('tiktok').val().length <= 300 && (newData.child('tiktok').val() == '' || newData.child('tiktok').val().beginsWith('https://')))) && (!newData.hasChild('email') || (newData.child('email').isString() && newData.child('email').val().length <= 120)) && (!newData.hasChild('tagline') || (newData.child('tagline').isString() && newData.child('tagline').val().length <= 120))"
+      },
+      "photos": {
+        "$id": {
+          ".write": "$id.matches(/^[a-z0-9]{1,40}$/) && newData.child('op').isString() && newData.child('op').val().length <= 40 && !root.child('booking').child('adminOps').child('cfg').child(newData.child('op').val()).exists() && newData.parent().parent().parent().child('booking').child('adminOps').child('cfg').child(newData.child('op').val()).isString()",
+          ".validate": "newData.child('deleted').val() == true || (newData.child('src').isString() && newData.child('src').val().beginsWith('data:image/jpeg;base64,') && newData.child('src').val().length <= 1000000 && (!newData.hasChild('caption') || (newData.child('caption').isString() && newData.child('caption').val().length <= 80)))"
+        }
+      }
     }
   }
 }
