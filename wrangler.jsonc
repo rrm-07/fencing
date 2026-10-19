@@ -1,15 +1,24 @@
-// Cloudflare deployment: the app is plain static files in app/, served by
-// Workers static assets (no server code). See README → "Deploy to Cloudflare".
+// Cloudflare deployment: the app's files (app/) and the club database
+// (server/worker.js, a Durable Object at /db). Everything lives on
+// uclfencing.com; no other services. See README → "Deploy to Cloudflare".
 {
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
   "name": "piste",
+  "main": "server/worker.js",
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./app",
+    "binding": "ASSETS",
     // /book serves /book/index.html (and redirects to /book/)
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "none",
+    // Only database requests run code; the app's files are served directly.
+    "run_worker_first": ["/db", "/db/*"],
   },
+  "durable_objects": {
+    "bindings": [{ "name": "DB", "class_name": "ClubDatabase" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClubDatabase"] }],
   // Serve on uclfencing.com (the domain must be on this Cloudflare account;
   // deploying creates the DNS record and certificate). For www, add a
   // Redirect Rule "www → root" in the dashboard (see README).

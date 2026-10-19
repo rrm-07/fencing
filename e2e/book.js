@@ -12,13 +12,13 @@ const APP_PORT = 8095;
 const DB_PORT = 9095;
 const APP = `http://localhost:${APP_PORT}/`;
 const BOOK_URL = `${APP}#book`; // the Book tab
-const DB = `http://localhost:${DB_PORT}`;
 const shots = new URL('./screens/', import.meta.url).pathname;
 await mkdir(shots, { recursive: true });
 
 const env = (port) => ({ env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
 const app = spawn(process.execPath, ['scripts/serve.js'], env(APP_PORT));
 const db = await startDb(DB_PORT);
+const DB = db.url;
 console.log(`  (database: ${db.kind})`);
 await new Promise((r) => setTimeout(r, 700));
 

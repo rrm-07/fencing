@@ -29,7 +29,7 @@ async function phone(name) {
     viewport: { width: 375, height: 667 },
     acceptDownloads: true,
   });
-  await context.addInitScript((url) => localStorage.setItem('piste:shareDbUrl', url), `http://localhost:${DB_PORT}`);
+  await context.addInitScript((url) => localStorage.setItem('piste:shareDbUrl', url), db.url);
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));

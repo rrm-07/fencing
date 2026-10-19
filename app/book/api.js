@@ -123,6 +123,23 @@ export function saveTimetable(entries, secret) {
   return request('PATCH', '', body);
 }
 
+/** Bring in an export of the old (Firebase) database. Only works while the club database is empty. */
+export async function importAll(data) {
+  let res;
+  try {
+    res = await fetch(`${serverUrl()}/.import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  } catch {
+    throw new Error('No connection. Check your signal and try again.');
+  }
+  if (res.status === 409) throw new Error('The database already has data');
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Server error ${res.status}`);
+  return res.json();
+}
+
 /**
  * Organiser: write the club page (About tab): 'about' → { links…, tagline },
  * 'photos/<id>' → { src, caption, at } or { deleted: true }. Proved like

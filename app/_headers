@@ -3,9 +3,8 @@
 #
 # - no-cache: phones always check for a new version (cheap 304s). Offline use
 #   comes from the service worker, which keeps its own copy of the app.
-# - The Content-Security-Policy only allows this site's own files, plus the
-#   Firebase Realtime Database for sharing and bookings. If you switch to a
-#   database URL on another host, add it to connect-src.
+# - The Content-Security-Policy only allows this site's own files and its
+#   own database (/db): nothing is loaded from or sent anywhere else.
 
 /*
   Cache-Control: no-cache
@@ -13,7 +12,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://*.firebasedatabase.app https://*.firebaseio.com; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
 
 # The old address checks this before forwarding people here.
 /piste.json

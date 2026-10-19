@@ -28,7 +28,7 @@ const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePa
 const errors = [];
 async function phone(name) {
   const context = await browser.newContext({ ...devices['iPhone SE'], viewport: { width: 375, height: 667 } });
-  await context.addInitScript((url) => localStorage.setItem('piste:shareDbUrl', url), `http://localhost:${DB_PORT}`);
+  await context.addInitScript((url) => localStorage.setItem('piste:shareDbUrl', url), db.url);
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on(
@@ -119,7 +119,7 @@ try {
   // Parent offline: result is kept and sent on reconnect.
   // Playwright's offline mode doesn't block localhost, so also cut the server off.
   const cut = (route) => route.abort('internetdisconnected');
-  await parent.context.route(`http://localhost:${DB_PORT}/**`, cut);
+  await parent.context.route(`${db.url}/**`, cut);
   await parent.context.setOffline(true);
   await parent.page.waitForFunction(() => document.querySelector('.share-bar .dot.offline'), null, { timeout: 8000 });
   await enterResult(parent.page, 'Cal', 'Dov', 3, 5);
@@ -127,7 +127,7 @@ try {
   await parent.page.screenshot({ path: `${shots}s3-offline.png` });
   await org.page.waitForTimeout(800);
   assert.equal(await cellText(org.page, 'Dov', 'Cal'), '', 'not sent while offline');
-  await parent.context.unroute(`http://localhost:${DB_PORT}/**`, cut);
+  await parent.context.unroute(`${db.url}/**`, cut);
   await parent.context.setOffline(false);
   await waitCell(org.page, 'Dov', 'Cal', 'V5');
   await parent.page.waitForFunction(() => !/to send/.test(document.querySelector('.share-bar')?.textContent), null, {
@@ -182,7 +182,7 @@ try {
   await org.page.waitForFunction(() => location.hash === '#poules');
   await parent.page.waitForFunction(() => !document.querySelector('.poule-row'), null, { timeout: 8000 });
   await third.page.waitForFunction(() => !document.querySelector('.poule-row'), null, { timeout: 8000 });
-  const gone = await (await fetch(`http://localhost:${DB_PORT}/poules/${code.replace('-', '')}.json`)).json();
+  const gone = await (await fetch(`${db.url}/poules/${code.replace('-', '')}.json`)).json();
   assert.equal(gone, null, 'removed from the server');
   log('organiser’s "Delete for Everyone" removed it from the server and every phone');
 
@@ -209,10 +209,7 @@ try {
     ),
   );
   if (all[0])
-    console.error(
-      '  server:',
-      JSON.stringify(await (await fetch(`http://localhost:${DB_PORT}/poules/${all[0]}/results.json`)).json()),
-    );
+    console.error('  server:', JSON.stringify(await (await fetch(`${db.url}/poules/${all[0]}/results.json`)).json()));
   const orgCells = await browser.contexts()[0].pages()[0].locator('.cell').allTextContents();
   console.error('  organiser cells:', orgCells.join('|'));
   for (const [i, ctx] of browser.contexts().entries())

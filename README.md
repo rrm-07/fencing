@@ -62,19 +62,17 @@ Screenshots are saved to `e2e/screens/`.
 
 Other suites cover team matches, shared poules, elimination tableaux, the training booking page (bookings, lessons, timetable editing, check-in, attendance) and moving to a new address.
 
-The sharing and booking suites run against a local mock of the Firebase database by default. To run them against the **official Firebase emulator, using the real `database.rules.json`**, download the emulator jar once (Java needed) and point the tests at it:
+The sharing, booking, About and import suites need the club database. By default they run its code ([`server/db.js`](server/db.js)) in a local Node server. To run them against the **real Cloudflare runtime**, use `npm run e2e:cloudflare`. This starts `wrangler dev` with the Worker and a fresh Durable Object, the same setup as production.
 
-```sh
-curl -o firebase-db-emulator.jar https://storage.googleapis.com/firebase-preview-drop/emulator/firebase-database-emulator-v4.11.2.jar
-FIREBASE_EMULATOR_JAR=$PWD/firebase-db-emulator.jar npm run e2e
-```
+## Deploy to Cloudflare (everything on uclfencing.com)
 
-## Deploy to Cloudflare (your own domain)
+Everything runs on Cloudflare, under one address. There's no Firebase or Google, and GitHub only stores the code (the repository can be private).
 
-Piste is plain static files in `app/`. [`wrangler.jsonc`](wrangler.jsonc) serves them with Cloudflare Workers (static assets only, no server code, free plan). [`app/_headers`](app/_headers) adds:
-
-- security headers, including a strict Content-Security-Policy that only allows the app's own files and the Firebase database;
-- `no-cache`, so phones always pick up new versions.
+- **The app:** plain static files in `app/`.
+- **The club database:** shared poules, bookings, attendance and the club page. It is [`server/worker.js`](server/worker.js), a small Cloudflare Worker with a Durable Object (Cloudflare's built-in storage, a private SQLite database), at `uclfencing.com/db`.
+  - The access rules live in [`server/db.js`](server/db.js) and are checked on the server. The tests run this exact code (see Tests).
+  - The free Workers plan covers a club easily.
+- **[`app/_headers`](app/_headers)** adds security headers, including a Content-Security-Policy that only allows the site's own files and its own database. It also sets `no-cache`, so phones always pick up new versions.
 
 **1. Connect the repository** (one time, in the Cloudflare dashboard):
 
@@ -84,65 +82,56 @@ Piste is plain static files in `app/`. [`wrangler.jsonc`](wrangler.jsonc) serves
    - **Production branch:** the branch you deploy from.
    - **Build command:** `npm test`. The unit tests run first, and a failure stops the deploy.
    - **Deploy command:** `npx wrangler deploy` (the default).
-3. Click **Deploy**. The site goes live at `https://piste.<your-account>.workers.dev`, and every push to that branch redeploys it. Other branches get preview URLs.
+3. Click **Deploy**. Every push to that branch redeploys it.
 
-**2. The domain.** `wrangler.jsonc` already serves the app on **uclfencing.com**. The domain must be on the same Cloudflare account: the first deploy creates its DNS record and HTTPS certificate. If it fails because a DNS record already exists for `uclfencing.com` (e.g. a parking page), delete that record and deploy again.
+**2. The domain.** `wrangler.jsonc` serves the app on **uclfencing.com**. The domain must be on the same Cloudflare account: the first deploy creates its DNS record and HTTPS certificate. If it fails because a DNS record already exists for `uclfencing.com` (e.g. a parking page), delete that record and deploy again.
 
 - For `www.uclfencing.com`, add **Rules → Redirect Rules → template "Redirect from WWW to root"** in the dashboard.
 - The app is at `https://uclfencing.com/`.
 - Training bookings are at `https://uclfencing.com/#book`. Old `…/book/` links forward there.
 
-**3. Moving everyone over from the old address happens by itself.** Phones keep the app's data per web address, so on a new domain they would start empty. To avoid that, `HOME_URL` (`https://uclfencing.com`) and `OLD_HOSTS` (`rrm-07.github.io`) are set in [`app/js/config.js`](app/js/config.js).
+**3. Bring the old data across (once).** In the Firebase console, open **Realtime Database → ⋮ (top right of the data) → Export JSON**. Then, in the app at uclfencing.com, go to **Book → Admin → Import Old Data…** and pick that file.
 
-The old address only forwards once uclfencing.com answers with `piste.json`. Until then it keeps working as before. Once it does:
+- It brings across bookings, the timetable, lessons, attendance, the club page, shared poules and the organiser passphrase. Afterwards, unlock with your usual passphrase.
+- Import only works while the new database is empty.
+- If you'd rather start fresh, skip this: set up bookings with a passphrase as before.
+
+**4. Phones move over by themselves.** Phones keep the app's data per web address. `HOME_URL` (`https://uclfencing.com`) and `OLD_HOSTS` (`rrm-07.github.io`) in [`app/js/config.js`](app/js/config.js) make the old address send people on. It only does so once uclfencing.com is answering; until then it keeps working, on the old database.
 
 - **Phones with data** are offered **Move My Data**. This carries their poules, team matches, roster, settings and training bookings to the new address in the link itself (in the `#` part, which never reaches a server). The booking keys matter: members need them to cancel or check in.
 - **Phones with nothing to move** are forwarded straight away.
 - **Old shared links and QR codes** (`#join/…`, `#checkin/…`) keep working because they are forwarded too.
 - Not moved: the log of free bouts, which you can still export as a backup.
-- Cloudflare preview URLs are never forwarded.
 
-**Nothing changes in Firebase.** If you ever move the database to a host other than `*.firebasedatabase.app` or `*.firebaseio.com`, add it to `connect-src` in `app/_headers`.
+**5. Then switch the old things off:**
 
-**From your computer instead:** run `npx wrangler login` once, then `npm run deploy`. `npm run preview` serves the site locally on Cloudflare's runtime.
+- Once you've opened the old address on your own phone and moved your data, make the GitHub repository **private** (GitHub → Settings → General → Danger Zone → Change visibility). The GitHub Pages copy stops with it.
+- Once the import is done, delete the Firebase project.
+- Cloudflare's GitHub connection keeps working with a private repository.
 
-## Deploy to GitHub Pages (the original address)
+**From your computer instead:** run `npx wrangler login` once, then `npm run deploy`. `npm run preview` runs the whole site, database included, locally on Cloudflare's runtime.
 
-The app is plain static files under `app/`, and every path is relative, so it works from any sub-path such as `https://you.github.io/fencing/`.
+**When you release changes:** bump `VERSION` in `app/sw.js`. Phones pick up the new version the next time the app is opened or brought back to the front, and reload into it automatically. If the clock is running, they wait until it stops and offer a "Reload" button.
 
-**Simplest:**
+## Shared poules
 
-1. In **Settings → Pages**, set **Source** to **Deploy from a branch**.
-2. Pick your branch and **/ (root)**, then click **Save**.
+Share a poule or an elimination tableau with a code. Anyone with the code follows it live and can enter results from their own phone.
 
-`index.html` at the repo root forwards to `app/`, and `.nojekyll` turns off Jekyll processing. The site goes live at `https://<user>.github.io/<repo>/` within a minute or two, and every push to that branch redeploys it.
+**Who can do what:**
 
-**Alternative (tests must pass before each deploy):**
+- Anyone with a code can read that poule and enter, edit or clear its results.
+- Nobody can list other poules or change a shared poule's name, fencers or bout order.
+- Only the organiser can delete a shared poule for everyone. Sharing stores a random owner key on the organiser's phone (and in the database, where nobody can read it), and **Delete for Everyone** must present that key. Everyone else only gets **Remove from This Phone**.
+- Codes use 31 characters × 6 positions (about 900 million combinations), so they can't realistically be guessed.
 
-1. Set **Source** to **GitHub Actions**.
-2. Push to `main`. `.github/workflows/pages.yml` runs the unit tests and then publishes `app/` directly.
+**How it works:**
 
-**When you release changes:** bump `VERSION` in `app/sw.js`. Phones pick up the new version the next time Piste is opened or brought back to the front, and reload into it automatically. If the clock is running, they wait until it stops and offer a "Reload" button.
+- The organiser's phone writes the poule once, then each bout's result is stored separately, so two people entering different bouts at the same time never overwrite each other. If two people edit the _same_ bout, the last save wins.
+- Phones subscribe to a live stream of the poule. Anything entered offline is queued ("1 to send") and sent on reconnection.
+- When the organiser deletes a poule for everyone, it disappears from every phone that joined.
+- Team matches are stored on the phone only (not shared).
 
-To use any other static host instead, upload the contents of `app/`.
-
-## Shared poules (one-time setup)
-
-Sharing needs a small online database. Piste uses **Firebase Realtime Database**, which is free for club-sized use and needs no server code. Until it is set up, the app works exactly as before and "Share"/"Join" explain that sharing isn't configured.
-
-1. Go to <https://console.firebase.google.com>, click **Create a project** (any name, e.g. `piste`). You can turn Google Analytics off.
-2. In the left menu open **Build → Realtime Database → Create Database**. Pick a location near you (e.g. Belgium `europe-west1`), choose **Start in locked mode**, then **Enable**.
-3. Open the **Rules** tab, replace everything with the contents of [`database.rules.json`](database.rules.json), and click **Publish**.
-4. On the **Data** tab, copy the database URL at the top (it looks like `https://piste-1234-default-rtdb.europe-west1.firebasedatabase.app`).
-5. Paste it into `app/js/config.js` as `SHARE_DB_URL`, bump `VERSION` in `app/sw.js`, and push.
-
-**Who can do what:** anyone with a code can read that poule and enter, edit or clear its results. Nobody can list other poules or change a shared poule's name, fencers or bout order. Only the organiser can delete a shared poule for everyone: sharing stores a random owner key on the organiser's phone (and under `owners/` on the server, where nobody can read it), and **Delete for Everyone** must present that key. Everyone else only gets **Remove from This Phone**. Codes use 31 characters × 6 positions (about 900 million combinations), so they can't realistically be guessed. Fencer names and clubs of shared poules are stored in your Firebase database.
-
-**How it works:** the organiser's phone writes the poule once (`poules/{CODE}/meta`), then each bout's result is stored separately (`poules/{CODE}/results/{boutId}`), so two people entering different bouts at the same time never overwrite each other. If two people edit the _same_ bout, the last save wins. Phones subscribe to a live stream of the poule, and anything entered offline is queued ("1 to send") and sent on reconnection. When the organiser deletes a poule for everyone, it disappears from every phone that joined. Team matches are stored on the phone only (not shared).
-
-**Updating the rules:** if you set up sharing before version 1.3, paste the new [`database.rules.json`](database.rules.json) into Firebase → Realtime Database → Rules and click **Publish**. Poules shared before 1.3 have no owner key, so they can only be removed phone by phone.
-
-For local development there is a stand-in server: run `npm run mock-share`, then in the browser console `localStorage.setItem('piste:shareDbUrl', 'http://localhost:9000')` and reload.
+For local development, `npm run mock-share` runs the club database in Node. Then, in the browser console, run `localStorage.setItem('piste:shareDbUrl', 'http://localhost:9000')` and reload.
 
 ## Training bookings
 
@@ -172,13 +161,13 @@ The **Book** tab: share **`https://uclfencing.com/#book`** with members. Old `�
   - The organiser can tick people off by hand (tap the number), add **walk-ins** with an optional, encrypted membership number, and take a late register for any session in the last week (Organiser → Attendance).
   - **Attendance** shows registers taken, how many of the booked places turned up, no-shows and walk-ins over 4 weeks, 12 weeks or all time, per member (matched by membership number). It exports as CSV, and the session register CSV gains an "Attended" column.
   - Only sessions where a register was taken count, and the waitlist never counts as a no-show.
-  - Who attended is readable by anyone with the link, like the names.
 - **Coach lessons:** a session can have a sign-up list for each coach, with a number of slots. Members put their name down from the session. Anyone past the slots becomes a reserve and moves up when someone cancels. Members cancel their own lessons; organisers can remove anyone (press and hold). Coaches are set per weekly session or per date.
-- **Storage:** the same Firebase database as shared poules, under `booking/`. The rules in [`database.rules.json`](database.rules.json) enforce all of the above, so re-publish them after updating.
+- **Storage:** the club database on Cloudflare (under `booking/`). The server enforces all of the above.
+- **What's visible:** without accounts, anything the app shows everyone (session lists with names, who attended, the club page) can be read by anyone who has the address. Membership numbers are encrypted so that only the organiser can read them, and the secret keys and organiser proofs are never readable.
 
 ## How data is stored
 
-Everything stays on the device. There is no account, and nothing leaves the phone except poules you choose to share (see above).
+Scoring data stays on the device. There is no account, and nothing leaves the phone except poules you choose to share and training bookings, which go to the club database on Cloudflare.
 
 - **IndexedDB** (database `piste`) holds poules, the fencer roster, finished bouts and settings. If IndexedDB is unavailable, for example in some private-browsing modes, the app falls back to `localStorage`.
 - **The bout in progress** is also written synchronously to `localStorage` on every tap. A sudden reload, crash or screen lock never loses the last touch.
@@ -197,7 +186,7 @@ app/                    the deployable site
     poule.js            bout-order tables, results, indicators, ranking, CSV
     share.js            share codes, merging results from other phones
   js/store.js           IndexedDB / localStorage persistence, backup
-  js/sync.js            live sync of shared poules (Firebase REST + EventSource)
+  js/sync.js            live sync of shared poules (the club database's REST API + EventSource)
   js/config.js          sharing server URL
   book/                 the Book tab (schedule.js, core.js, crypto.js, api.js, book.js); index.html forwards old links
   js/ui/shell.js        tab bar, mode rows and transitions
@@ -211,7 +200,10 @@ e2e/share.js            multi-phone sharing test against the mock server
 e2e/team.js             full team relay match, three-weapon fixture
 e2e/tableau.js          elimination tableau: seeding, byes, sharing, corrections
 e2e/book.js             booking page with organiser, members and the waitlist
-database.rules.json     Firebase security rules for shared poules
+server/db.js            the club database: data, access rules, live updates (shared with the tests)
+server/worker.js        Cloudflare Worker + Durable Object serving the app and /db
+wrangler.jsonc          Cloudflare deployment
+database.rules.json     rules for the old Firebase database (only until the move; then delete)
 scripts/                dev server, mock sharing server, icon generator
 ```
 

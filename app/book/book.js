@@ -690,7 +690,7 @@ function renderAdmin() {
   let content;
   if (!api.serverUrl()) content = [h('p', { class: 'sheet-status' }, 'Bookings aren’t connected to a server yet.')];
   else if (!S.keysLoaded) content = [h('p', { class: 'sheet-status' }, 'Connecting…')];
-  else if (!S.org) content = [unlockForm()];
+  else if (!S.org) content = [unlockForm(), !S.keys.publicKey && importGroup()];
   else {
     const doorNow = sessionsAt(now).filter((s) => checkinOpen(s, now) && !closureOf(S.closures[s.key]));
     content = [
@@ -767,6 +767,52 @@ function renderAdmin() {
   adminRoot.dataset.state = S.org ? 'tools' : S.keysLoaded ? 'form' : 'wait';
   fill(adminRoot, h('section', { class: 'page' }, nav, body));
   body.scrollTop = y;
+}
+
+/** Moving from the old (Firebase) database: bring in its exported JSON. */
+function importGroup() {
+  const picker = h('input', {
+    type: 'file',
+    accept: 'application/json,.json',
+    hidden: true,
+    'aria-label': 'Choose export file',
+  });
+  picker.addEventListener('change', async () => {
+    const file = picker.files[0];
+    picker.value = '';
+    if (!file) return;
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch {
+      return toast('That file isn’t a database export (JSON)', { ms: 4000 });
+    }
+    const ok = await confirmDialog({
+      title: 'Import the Old Data?',
+      message:
+        'Bookings, the timetable, shared poules and your organiser passphrase come across. Afterwards, unlock with your usual passphrase.',
+      confirm: 'Import',
+    });
+    if (!ok) return;
+    try {
+      await api.importAll(data);
+      S.keys = await api.getKeys();
+      adminRoot.dataset.state = '';
+      render();
+      toast('Old data imported: unlock with your passphrase', { ms: 4000 });
+    } catch (e) {
+      toast(e.message, { ms: 4000 });
+    }
+  });
+  return group(
+    {
+      header: 'Moving From the Old Database?',
+      footer:
+        'In the Firebase console: Realtime Database → ⋮ → Export JSON. Then pick that file here. Only works once, before anything else is set up.',
+    },
+    picker,
+    row({ lead: tile('download', 'indigo'), title: 'Import Old Data…', chevron: true, onClick: () => picker.click() }),
+  );
 }
 
 function unlockForm() {
